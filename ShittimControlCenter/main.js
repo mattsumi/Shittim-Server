@@ -300,7 +300,8 @@ async function setOfflineHosts(on) {
 
   const staged = path.join(os.tmpdir(), `scc-hosts-${process.pid}.txt`);
   fs.writeFileSync(staged, next, 'utf8');
-  const inner = `Copy-Item -LiteralPath ${psQuote(staged)} -Destination ${psQuote(hosts)} -Force; ipconfig /flushdns | Out-Null`;
+  const besideHosts = `${hosts}.shittim_tmp`;
+  const inner = `Copy-Item -LiteralPath ${psQuote(staged)} -Destination ${psQuote(besideHosts)} -Force; Move-Item -LiteralPath ${psQuote(besideHosts)} -Destination ${psQuote(hosts)} -Force; ipconfig /flushdns | Out-Null`;
   const ps = `$p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Command', ${psQuote(inner)}) -Verb RunAs -PassThru -Wait -WindowStyle Hidden; exit $p.ExitCode`;
   const r = await runPwsh(ps, (l) => broadcast('proc:log', { source: 'mitm', line: l }));
   try { fs.unlinkSync(staged); } catch { /* ignore */ }
