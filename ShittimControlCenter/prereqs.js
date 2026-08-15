@@ -1,6 +1,8 @@
 'use strict';
 
 const NODES = [
+  { id: 'project', label: 'Server project', dependsOn: [], blocking: true, install: false,
+    explain: 'Downloaded or located from the first-run screen. Everything else depends on it being present.' },
   { id: 'dotnet', label: '.NET SDK', dependsOn: [], blocking: true, install: true },
   { id: 'gateway', label: 'Gateway keys', dependsOn: [], blocking: true, install: false,
     explain: 'Generated automatically the first time the server runs. No key is shared between installs; it appears here as ready once the server has started once.' },
