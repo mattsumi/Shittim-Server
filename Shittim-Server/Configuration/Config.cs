@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using BlueArchiveAPI.Configuration.ConfigType;
 using Shittim.Utils;
+using Shittim_Server.Services;
 using Serilog;
 
 namespace BlueArchiveAPI.Configuration
@@ -95,6 +96,9 @@ namespace BlueArchiveAPI.Configuration
 
             Instance.ServerInfoConfig = GetServerInfoConfig();
 
+            if (!GatewayKeyExplicitlyConfigured() && GatewayKeyProvider.EnsureKeyPair(ConfigDirectory))
+                Log.Information("Generated a per-install gateway RSA key pair in {ConfigDirectory}", ConfigDirectory);
+
             Log.Debug("Config loaded");
             Log.Information("Data Version Id is {VersionId}", Instance.ServerConfiguration.VersionId);
             Log.Information("Game Server Version is {GameVersion}", Instance.ServerConfiguration.GameVersion.ToString());
@@ -108,6 +112,14 @@ namespace BlueArchiveAPI.Configuration
             ApplyLocalhostAddress();
             File.WriteAllText(ConfigPath, JsonSerializer.Serialize(Instance, jsonOptions));
             Log.Debug($"Config saved");
+        }
+
+        private static bool GatewayKeyExplicitlyConfigured()
+        {
+            return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SHITTIM_GATEWAY_RSA_PRIVATE_KEY"))
+                || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SHITTIM_GATEWAY_RSA_PRIVATE_KEY_PATH"))
+                || !string.IsNullOrWhiteSpace(Instance?.ServerConfiguration?.GatewayRsaPrivateKeyPath)
+                || !string.IsNullOrWhiteSpace(Instance?.ServerConfiguration?.GatewayRsaPrivateKeyPem);
         }
 
         private static void ApplyLocalhostAddress()

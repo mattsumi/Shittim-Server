@@ -378,13 +378,11 @@ async function checkPrereqs() {
     : fs.existsSync(p.csproj) ? 'source only - will build on launch'
     : 'server project not found';
 
-  // The gateway RSA pair is shipped and copied next to the exe by the csproj. A clean rebuild wipes bin/Config, and without the private key the 50001 handshake cannot be decrypted, which the client shows as a hang on "Unpacking game resources" rather than as anything to do with keys.
   const keyDir = path.dirname(p.configPath);
   const gatewayKey = path.join(keyDir, 'GatewayPrivateKey.pem');
-  const shippedKey = path.join(p.serverDir, 'config', 'GatewayPrivateKey.pem');
-  const gateway = fs.existsSync(gatewayKey) ? { status: 'ready', detail: gatewayKey }
-    : fs.existsSync(shippedKey) ? { status: 'ready', detail: `${shippedKey} - copied next to the exe on build` }
-    : { status: 'missing', detail: `GatewayPrivateKey.pem is in neither ${keyDir} nor ${path.dirname(shippedKey)}` };
+  const gateway = fs.existsSync(gatewayKey)
+    ? { status: 'ready', detail: gatewayKey }
+    : { status: 'missing', detail: `not yet at ${gatewayKey}` };
 
   return {
     dotnet,

@@ -63,16 +63,4 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Gateway RSA key pair must survive a clean rebuild. Lose it and the 50001 handshake can no
-         longer be decoded against the client's patched global-metadata.dat, and the client hangs
-         at "Unpacking game resources". -->
-    <None Include="config\GatewayPrivateKey.pem" Link="Config\GatewayPrivateKey.pem">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="config\GatewayPublicKey.pem" Link="Config\GatewayPublicKey.pem">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>

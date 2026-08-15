@@ -9,6 +9,7 @@ namespace Shittim_Server.Tests;
 
 // global-metadata.dat carrying our gateway key is what the official client chokes on: it reads the file on the way in and sits on "Unpacking game resources" forever, and the only way out anyone finds is Steam's file verification.
 // Turning the patch off has to be enough to get the client back.
+[Collection("native-ias-patch")]
 public class MetadataPatchRestoreTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"shittim-metadata-{Guid.NewGuid():N}");
