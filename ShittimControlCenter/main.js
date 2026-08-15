@@ -10,6 +10,7 @@ const { extractZip, installTree, resumeInterruptedInstall, backupUserData, write
 const { resolveRepoRoot, pathsFor, firstExisting, componentVersions, findMitmBinDir, mitmExe, dotnetExe } = require('./paths');
 const { killTree: killPidTree, streamLines } = require('./procs');
 const { thumbprint, trustedRoot } = require('./certs');
+const prereqs = require('./prereqs');
 
 // The control center lives at <repoRoot>/ShittimControlCenter. Everything it drives (the server project, the database, the mitm scripts) is resolved relative to <repoRoot> so the app is portable as long as the layout holds.
 
@@ -340,10 +341,10 @@ async function pathDotnetHasWeb(dn) {
 async function checkDotnet() {
   const dn = resolveDotnet();
   const ver = await execCheck(dn.cmd, ['--version']);
-  if (!ver.ok) return { status: 'missing', detail: '.NET SDK not found - click Install' };
+  if (!ver.ok) return { status: 'missing', detail: '.NET SDK not found' };
   const where = dn.root ? dn.cmd : `${dn.cmd} on PATH`;
   const webOk = dn.root ? hasWebSdk(dn.root) : await pathDotnetHasWeb(dn);
-  if (!webOk) return { status: 'warning', detail: `SDK ${ver.detail} (${where}) - ASP.NET Core Web SDK missing; click Install` };
+  if (!webOk) return { status: 'warning', detail: `SDK ${ver.detail} (${where}) - ASP.NET Core Web SDK missing` };
   return { status: 'ready', detail: `SDK ${ver.detail} (${where})` };
 }
 
@@ -354,10 +355,12 @@ async function checkCertificate() {
   if (process.platform !== 'win32') return { status: 'warning', detail: `${certPath} - trust it in the system store yourself on this platform` };
   const thumb = thumbprint(certPath);
   if (await trustedRoot(thumb)) return { status: 'ready', detail: `${certPath} (${thumb.slice(0, 8)}, trusted)` };
-  return { status: 'warning', detail: `${certPath} exists but ${thumb.slice(0, 8)} is not in the root store - click Trust cert` };
+  return { status: 'warning', detail: `${certPath} exists but ${thumb.slice(0, 8)} is not in the root store` };
 }
 
-async function runEnvChecks() {
+// Each node's state, keyed by id. Detail strings describe what IS, never what to
+// click - the action lives on the button the renderer draws from the graph.
+async function checkPrereqs() {
   const p = resolvePaths();
 
   const mitmPath = mitmTool('mitmweb');
@@ -375,23 +378,47 @@ async function runEnvChecks() {
     : fs.existsSync(p.csproj) ? 'source only - will build on launch'
     : 'server project not found';
 
-  // The gateway RSA pair is not generated - it is shipped and copied next to the exe by the csproj. A clean rebuild wipes bin/Config, and without the private key the 50001 handshake cannot be decrypted, which the client shows as a hang on "Unpacking game resources" rather than as anything to do with keys.
+  // The gateway RSA pair is shipped and copied next to the exe by the csproj. A clean rebuild wipes bin/Config, and without the private key the 50001 handshake cannot be decrypted, which the client shows as a hang on "Unpacking game resources" rather than as anything to do with keys.
   const keyDir = path.dirname(p.configPath);
   const gatewayKey = path.join(keyDir, 'GatewayPrivateKey.pem');
   const shippedKey = path.join(p.serverDir, 'config', 'GatewayPrivateKey.pem');
   const gateway = fs.existsSync(gatewayKey) ? { status: 'ready', detail: gatewayKey }
     : fs.existsSync(shippedKey) ? { status: 'ready', detail: `${shippedKey} - copied next to the exe on build` }
-    : { status: 'missing', detail: `GatewayPrivateKey.pem is in neither ${keyDir} nor ${path.dirname(shippedKey)} - login cannot be decrypted` };
+    : { status: 'missing', detail: `GatewayPrivateKey.pem is in neither ${keyDir} nor ${path.dirname(shippedKey)}` };
 
   return {
     dotnet,
-    mitmproxy: { status: mitm.ok ? 'ready' : 'missing', detail: mitm.ok ? `${mitm.detail} - ${mitmPath}` : `${mitmPath} did not answer --version - click Install` },
+    mitmproxy: { status: mitm.ok ? 'ready' : 'missing', detail: mitm.ok ? `${mitm.detail} - ${mitmPath}` : `${mitmPath} did not answer --version` },
     certificate,
     gateway,
     database: { status: fs.existsSync(p.dbPath) ? 'ready' : 'warning', detail: fs.existsSync(p.dbPath) ? p.dbPath : 'created on first server run' },
     server: { status: vs.buildStale ? 'warning' : p.exePath ? 'ready' : (fs.existsSync(p.csproj) ? 'warning' : 'missing'), detail: serverDetail },
     redirect: { status: fs.existsSync(p.redirectScript) ? 'ready' : 'missing', detail: fs.existsSync(p.redirectScript) ? p.redirectScript : 'redirect_server.py missing' },
   };
+}
+
+// Fold the raw statuses onto the prerequisite graph and hand the renderer one
+// topologically ordered list to draw from, plus whether the whole thing is
+// ready. Adding a prerequisite is a line in prereqs.js and a check above - the
+// renderer and the installer both read this shape and neither hardcodes the set.
+async function runEnvChecks() {
+  const raw = await checkPrereqs();
+  const nodes = prereqs.topoOrder(prereqs.graph()).map((n) => {
+    const state = raw[n.id] || { status: 'missing', detail: 'no check for this node' };
+    return {
+      id: n.id,
+      label: n.label,
+      status: state.status,
+      detail: state.detail,
+      blocking: n.blocking,
+      dependsOn: n.dependsOn,
+      canInstall: n.install === true,
+      action: n.id === 'certificate' ? 'trust' : n.install ? 'install' : null,
+      explain: n.explain || null,
+    };
+  });
+  const ready = nodes.every((n) => !n.blocking || n.status === 'ready');
+  return { nodes, ready };
 }
 
 // The repo is a git checkout of origin/main. "Check" fetches and reports how far behind we are plus the incoming changelog; "Apply" does a fast-forward-only pull (which NEVER overwrites uncommitted local edits - it refuses if it would), and "Rebuild" recompiles the .NET server that the pull may have changed.
@@ -966,16 +993,58 @@ async function installCertificate() {
   }
 }
 
-// Orchestrate one step, or all three in dependency order (the cert step needs mitmproxy's mitmdump, so mitmproxy is installed before it).
+// The installer for each node that declares one. Every prereq with install:true
+// must have an entry here; assertInstallersWired checks that at startup so a new
+// node added to the graph without its installer fails loudly instead of showing
+// up as a button that does nothing.
+const INSTALLERS = {
+  dotnet: installDotnet,
+  mitmproxy: installMitmproxy,
+  certificate: installCertificate,
+};
+
+function assertInstallersWired() {
+  const missing = prereqs.graph()
+    .filter((n) => n.install && typeof INSTALLERS[n.id] !== 'function')
+    .map((n) => n.id);
+  if (missing.length) throw new Error(`prereq graph declares installers that are not wired: ${missing.join(', ')}`);
+}
+
+// Walk the graph to all-ready. 'all' installs every missing blocking node in
+// dependency order, re-checking after each so a node whose dependency just
+// failed is skipped rather than fired blindly; a single id retries just that
+// node. The resolved plan goes out as the first progress event so the UI can
+// render the real sequence instead of assuming it starts with .NET.
 async function runSetup(which) {
-  const order = which === 'all' ? ['dotnet', 'mitmproxy', 'certificate'] : [which];
-  const results = {};
-  for (const step of order) {
-    if (step === 'dotnet') results.dotnet = await installDotnet();
-    else if (step === 'mitmproxy') results.mitmproxy = await installMitmproxy();
-    else if (step === 'certificate') results.certificate = await installCertificate();
-    else return { ok: false, error: `unknown setup step: ${step}` };
+  const statusOf = async (id) => (await checkPrereqs())[id]?.status || 'missing';
+
+  let plan;
+  if (which === 'all') {
+    const raw = await checkPrereqs();
+    plan = prereqs.plannedSteps(prereqs.graph(), (id) => raw[id]?.status || 'missing');
+  } else {
+    const node = prereqs.graph().find((n) => n.id === which);
+    if (!node) return { ok: false, error: `unknown setup step: ${which}` };
+    if (!node.install) return { ok: false, error: `${which} has no installer` };
+    plan = [which];
   }
+
+  broadcast('setup:progress', { plan });
+  if (plan.length === 0) { broadcast('setup:progress', { step: which, status: 'all-done' }); return { ok: true, results: {} }; }
+
+  const byId = new Map(prereqs.graph().map((n) => [n.id, n]));
+  const results = {};
+  for (const id of plan) {
+    const node = byId.get(id);
+    const current = await Promise.all(node.dependsOn.map(statusOf));
+    if (node.dependsOn.some((_, i) => current[i] !== 'ready')) {
+      results[id] = { ok: false, error: `${id} is waiting on a dependency that is not ready` };
+      setupPhase(id, 'failed', { message: results[id].error });
+      continue;
+    }
+    results[id] = await INSTALLERS[id]();
+  }
+
   const ok = Object.values(results).every((r) => r && r.ok);
   broadcast('setup:progress', { step: which, status: ok ? 'all-done' : 'all-failed' });
   return { ok, results };
@@ -1386,6 +1455,8 @@ ipcMain.on('window:control', (e, action) => {
   else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize();
   else if (action === 'close') win.close();
 });
+
+assertInstallersWired();
 
 app.whenReady().then(() => {
   createWindow();

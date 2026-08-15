@@ -73,12 +73,17 @@ export default {
     const right = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px', minWidth: '0' } }, offlineCard, shortcutsCard, diagnostics);
     root.appendChild(el('div.grid-2', { style: { gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', alignItems: 'start' } }, readiness, right));
 
-    function fixBtn(step, info) {
-      if (busy) return null;
-      const ready = (info?.status || 'missing') === 'ready';
-      if (ready) return null;
-      const label = step === 'certificate' ? 'Trust cert' : 'Install';
-      return button(label, { variant: 'ghost', sm: true, iconName: 'download', onClick: () => runSetup(step) });
+    // Whatever the node offers when it is not ready: its installer as a button,
+    // or its explanation as an inline note. Never nothing - a non-ready row with
+    // no way forward is the dead end this rebuild exists to remove.
+    function nodeAction(node) {
+      if (node.status === 'ready') return null;
+      if (node.canInstall && !busy) {
+        const label = node.action === 'trust' ? 'Trust cert' : 'Install';
+        return button(label, { variant: 'ghost', sm: true, iconName: 'download', onClick: () => runSetup(node.id) });
+      }
+      if (node.explain) return el('span.d-explain', { text: node.explain, style: { fontSize: '11.5px', color: 'var(--ink-3)', flexBasis: '100%', marginTop: '4px' } });
+      return null;
     }
 
     async function loadDiag() {
@@ -86,15 +91,10 @@ export default {
       try {
         const env = await window.host.envCheck();
         clear(diagBody);
-        diagBody.appendChild(diagRow('.NET SDK', env.dotnet, fixBtn('dotnet', env.dotnet)));
-        diagBody.appendChild(diagRow('Server build', env.server));
-        diagBody.appendChild(diagRow('Game database', env.database));
-        diagBody.appendChild(diagRow('mitmproxy', env.mitmproxy, fixBtn('mitmproxy', env.mitmproxy)));
-        diagBody.appendChild(diagRow('CA certificate', env.certificate, fixBtn('certificate', env.certificate)));
-        diagBody.appendChild(diagRow('Gateway keys', env.gateway));
-        diagBody.appendChild(diagRow('Redirect script', env.redirect));
-        const anyMissing = ['dotnet', 'mitmproxy', 'certificate'].some((k) => (env[k]?.status || 'missing') !== 'ready');
-        setupBtn.disabled = busy || !anyMissing;
+        for (const node of env.nodes)
+          diagBody.appendChild(diagRow(node.label, node, nodeAction(node)));
+        const anyInstallable = env.nodes.some((n) => n.blocking && n.canInstall && n.status !== 'ready');
+        setupBtn.disabled = busy || !anyInstallable;
       } catch (e) {
         diagBody.innerHTML = `<div class="empty"><b>Check failed</b><span>${String(e.message || e)}</span></div>`;
       }
@@ -163,12 +163,17 @@ export default {
       const panel = setupPanel();
       diagBody.appendChild(panel.wrap);
 
-      let curStep = which === 'all' ? 'dotnet' : which;
+      // The backend sends the resolved plan as its first event; until it arrives
+      // there is no step to name, so the panel says so rather than guessing .NET.
+      let plan = null;
+      let curStep = which === 'all' ? null : which;
       let msg = 'Starting...';
       const t0 = Date.now();
       const elapsed = () => { const s = Math.floor((Date.now() - t0) / 1000); const m = Math.floor(s / 60); return m ? `${m}m ${s % 60}s` : `${s}s`; };
+      const stepName = (id) => labels[id] || id;
       const render = () => {
-        panel.titleEl.textContent = `Installing ${labels[curStep] || curStep}...`;
+        const pos = plan && curStep ? ` (${plan.indexOf(curStep) + 1}/${plan.length})` : '';
+        panel.titleEl.textContent = curStep ? `Installing ${stepName(curStep)}${pos}...` : 'Working out what needs installing...';
         panel.subEl.textContent = `${msg} - ${elapsed()} elapsed`;
       };
       render();
@@ -176,6 +181,7 @@ export default {
       const timer = setInterval(render, 1000);
 
       const unsub = window.host.onSetupProgress((d) => {
+        if (Array.isArray(d.plan)) { plan = d.plan; if (!curStep) curStep = plan[0] || null; }
         if (d.step && labels[d.step]) curStep = d.step;
         if (typeof d.recv === 'number' && d.total) msg = `Downloading... ${fmtMB(d.recv)} / ${fmtMB(d.total)}`;
         else if (d.status === 'running' && d.message) msg = d.message;
