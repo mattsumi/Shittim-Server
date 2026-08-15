@@ -73,9 +73,6 @@ export default {
     const right = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px', minWidth: '0' } }, offlineCard, shortcutsCard, diagnostics);
     root.appendChild(el('div.grid-2', { style: { gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', alignItems: 'start' } }, readiness, right));
 
-    // Whatever the node offers when it is not ready: its installer as a button,
-    // or its explanation as an inline note. Never nothing - a non-ready row with
-    // no way forward is the dead end this rebuild exists to remove.
     function nodeAction(node) {
       if (node.status === 'ready') return null;
       if (node.canInstall && !busy) {
@@ -163,8 +160,6 @@ export default {
       const panel = setupPanel();
       diagBody.appendChild(panel.wrap);
 
-      // The backend sends the resolved plan as its first event; until it arrives
-      // there is no step to name, so the panel says so rather than guessing .NET.
       let plan = null;
       let curStep = which === 'all' ? null : which;
       let msg = 'Starting...';

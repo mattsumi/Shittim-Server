@@ -358,8 +358,6 @@ async function checkCertificate() {
   return { status: 'warning', detail: `${certPath} exists but ${thumb.slice(0, 8)} is not in the root store` };
 }
 
-// Each node's state, keyed by id. Detail strings describe what IS, never what to
-// click - the action lives on the button the renderer draws from the graph.
 async function checkPrereqs() {
   const p = resolvePaths();
 
@@ -395,10 +393,6 @@ async function checkPrereqs() {
   };
 }
 
-// Fold the raw statuses onto the prerequisite graph and hand the renderer one
-// topologically ordered list to draw from, plus whether the whole thing is
-// ready. Adding a prerequisite is a line in prereqs.js and a check above - the
-// renderer and the installer both read this shape and neither hardcodes the set.
 async function runEnvChecks() {
   const raw = await checkPrereqs();
   const nodes = prereqs.topoOrder(prereqs.graph()).map((n) => {
@@ -991,10 +985,6 @@ async function installCertificate() {
   }
 }
 
-// The installer for each node that declares one. Every prereq with install:true
-// must have an entry here; assertInstallersWired checks that at startup so a new
-// node added to the graph without its installer fails loudly instead of showing
-// up as a button that does nothing.
 const INSTALLERS = {
   dotnet: installDotnet,
   mitmproxy: installMitmproxy,
@@ -1008,11 +998,6 @@ function assertInstallersWired() {
   if (missing.length) throw new Error(`prereq graph declares installers that are not wired: ${missing.join(', ')}`);
 }
 
-// Walk the graph to all-ready. 'all' installs every missing blocking node in
-// dependency order, re-checking after each so a node whose dependency just
-// failed is skipped rather than fired blindly; a single id retries just that
-// node. The resolved plan goes out as the first progress event so the UI can
-// render the real sequence instead of assuming it starts with .NET.
 async function runSetup(which) {
   const statusOf = async (id) => (await checkPrereqs())[id]?.status || 'missing';
 
