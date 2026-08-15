@@ -3,7 +3,7 @@
 const NODES = [
   { id: 'dotnet', label: '.NET SDK', dependsOn: [], blocking: true, install: true },
   { id: 'gateway', label: 'Gateway keys', dependsOn: [], blocking: true, install: false,
-    explain: 'Ships with the server and is copied next to the exe on build. If it is missing from both places, rebuild the server from the Updates tab.' },
+    explain: 'Generated automatically the first time the server runs. No key is shared between installs; it appears here as ready once the server has started once.' },
   { id: 'mitmproxy', label: 'mitmproxy', dependsOn: [], blocking: true, install: true },
   { id: 'certificate', label: 'CA certificate', dependsOn: ['mitmproxy'], blocking: true, install: true },
   { id: 'server', label: 'Server build', dependsOn: ['dotnet'], blocking: true, install: false,
