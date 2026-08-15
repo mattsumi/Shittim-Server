@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run tests
+        run: npm test
+
       - name: Build & publish to GitHub Releases
         env:
           # electron-builder reads GH_TOKEN to publish; the built-in token has the
