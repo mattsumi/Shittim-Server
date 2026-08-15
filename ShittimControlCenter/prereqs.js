@@ -22,8 +22,6 @@ function nodeIds() {
   return NODES.map((n) => n.id);
 }
 
-// Kahn's algorithm. Dependencies come before the nodes that need them, so a walk
-// in this order never installs a node before the things it stands on.
 function topoOrder(nodes) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const indegree = new Map(nodes.map((n) => [n.id, 0]));
@@ -49,26 +47,16 @@ function topoOrder(nodes) {
   return out;
 }
 
-// The full plan ensureReady will work through, in dependency order: every
-// blocking node that has an installer and is not ready yet. Topological order
-// means a node's dependencies are installed earlier in the same walk, so the
-// plan can be handed to the UI up front instead of the frontend guessing it.
 function plannedSteps(nodes, statusOf) {
   return topoOrder(nodes)
     .filter((n) => n.blocking && n.install && statusOf(n.id) !== 'ready')
     .map((n) => n.id);
 }
 
-// Whether a node can be installed on this pass: all of its dependencies are
-// ready now. A dependency that failed to install leaves this one skippable
-// rather than firing an installer that can only fail.
 function canInstallNow(node, statusOf) {
   return node.dependsOn.every((dep) => statusOf(dep) === 'ready');
 }
 
-// P0.2: a node that is not ready must give the user something to do about it -
-// an installer or an explanation. A node that can go non-ready with neither is a
-// dead end in the onboarding view.
 function nodesWithoutAction() {
   return NODES.filter((n) => !n.install && !n.explain).map((n) => n.id);
 }
