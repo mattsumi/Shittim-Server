@@ -361,6 +361,7 @@ async function checkCertificate() {
 
 async function checkPrereqs() {
   const p = resolvePaths();
+  const proj = projectStatus();
 
   const mitmPath = mitmTool('mitmweb');
   const [dotnet, mitm, certificate] = await Promise.all([
@@ -384,6 +385,7 @@ async function checkPrereqs() {
     : { status: 'missing', detail: `not yet at ${gatewayKey}` };
 
   return {
+    project: { status: proj.found ? 'ready' : 'missing', detail: proj.found ? proj.repoRoot : (proj.configured ? `${proj.configured} is not there right now` : 'not downloaded yet') },
     dotnet,
     mitmproxy: { status: mitm.ok ? 'ready' : 'missing', detail: mitm.ok ? `${mitm.detail} - ${mitmPath}` : `${mitmPath} did not answer --version` },
     certificate,
