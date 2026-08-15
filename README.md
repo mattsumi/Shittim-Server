@@ -26,6 +26,17 @@ Grab Shittim Control Center from the [releases page](https://github.com/Neoexm/S
 
 The Control Center acts as the admin panel. accounts, inventory, mail, gacha, events, and all other features can be found there. The console also keeps itself, aswell as the server fully up to date
 
+## Credits
+
+This server builds on earlier open Blue Archive projects:
+
+- **The SCHALE.GameServer project family** — the server architecture this grew out of: the `Schale` data layer, `SchaleDataContext`, and the `MX/NetworkProtocol` handlers.
+- **[cc004/BlueArchiveAPI](https://github.com/cc004/BlueArchiveAPI)** — the `BlueArchiveAPI` request/handler layer that much of the C# still lives in.
+- **[K0lb3](https://github.com/K0lb3)'s Blue Archive Asset Downloader** — the crypto modules under `Schale/Crypto` (MersenneTwister, XXHash, table encryption, XOR).
+- **[niyaniya-lab](https://github.com/niyaniya-lab)** — the lossless account import restoration (upstream PR #37).
+
+If you own one of these projects and want the attribution changed or a licence honoured differently, open an issue and it will be sorted out.
+
 ## Disclaimer
 
 For educational and research purposes only. Not affiliated with Nexon.
