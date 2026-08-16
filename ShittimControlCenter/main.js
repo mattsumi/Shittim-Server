@@ -147,7 +147,7 @@ function startServer(offline) {
   }
 
   broadcast('proc:log', { source: 'server', line: `> launching ${path.basename(cmd)} (cwd: ${cwd})` });
-  const child = spawn(cmd, args, { cwd, windowsHide: true, env });
+  const child = spawn(cmd, args, { cwd, windowsHide: true, env, detached: process.platform !== 'win32' });
   procs.server = child;
   started.server = Date.now();
   started.serverGraceMs = p.exePath ? LISTEN_GRACE_MS : null;
@@ -210,7 +210,7 @@ function startMitm(offline) {
   broadcast('proc:log', { source: 'mitm', line: `> launching mitmweb (cwd: ${p.scriptsDir})${offline ? ' in offline mode' : ''}` });
   let child;
   try {
-    child = spawn(cmd, args, { cwd: p.scriptsDir, windowsHide: true, env });
+    child = spawn(cmd, args, { cwd: p.scriptsDir, windowsHide: true, env, detached: process.platform !== 'win32' });
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }
@@ -289,7 +289,6 @@ function hostsWithBlock(text, on) {
 
 // hosts sits under System32, so staging the finished file next to it and copying it across keeps the elevated half down to one copy and a resolver cache flush - the cache matters because a name the client already looked up stays pointed at the real address until it is dropped.
 async function setOfflineHosts(on) {
-  if (process.platform !== 'win32') return { ok: false, error: `Automated hosts editing is not wired for this platform yet. Add these to /etc/hosts by hand: ${OFFLINE_HOSTS.map((h) => `127.0.0.2 ${h}`).join('  ')}` };
   const hosts = HOSTS_PATH();
   let cur;
   try {
@@ -304,9 +303,22 @@ async function setOfflineHosts(on) {
   const staged = path.join(os.tmpdir(), `scc-hosts-${process.pid}.txt`);
   fs.writeFileSync(staged, next, 'utf8');
   const besideHosts = `${hosts}.shittim_tmp`;
-  const inner = `Copy-Item -LiteralPath ${psQuote(staged)} -Destination ${psQuote(besideHosts)} -Force; Move-Item -LiteralPath ${psQuote(besideHosts)} -Destination ${psQuote(hosts)} -Force; ipconfig /flushdns | Out-Null`;
-  const ps = `$p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Command', ${psQuote(inner)}) -Verb RunAs -PassThru -Wait -WindowStyle Hidden; exit $p.ExitCode`;
-  const r = await runPwsh(ps, (l) => broadcast('proc:log', { source: 'mitm', line: l }));
+
+  let r;
+  if (process.platform === 'win32') {
+    const inner = `Copy-Item -LiteralPath ${psQuote(staged)} -Destination ${psQuote(besideHosts)} -Force; Move-Item -LiteralPath ${psQuote(besideHosts)} -Destination ${psQuote(hosts)} -Force; ipconfig /flushdns | Out-Null`;
+    const ps = `$p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Command', ${psQuote(inner)}) -Verb RunAs -PassThru -Wait -WindowStyle Hidden; exit $p.ExitCode`;
+    r = await runPwsh(ps, (l) => broadcast('proc:log', { source: 'mitm', line: l }));
+  } else {
+    const flush = process.platform === 'darwin'
+      ? 'dscacheutil -flushcache 2>/dev/null || true ; killall -HUP mDNSResponder 2>/dev/null || true'
+      : 'resolvectl flush-caches 2>/dev/null || true';
+    const aliases = (process.platform === 'darwin' && on)
+      ? 'ifconfig lo0 alias 127.0.0.2 up 2>/dev/null || true ; ifconfig lo0 alias 127.0.0.3 up 2>/dev/null || true ; '
+      : '';
+    const cmd = `cp ${shQuote(staged)} ${shQuote(besideHosts)} && mv ${shQuote(besideHosts)} ${shQuote(hosts)} && ( ${aliases}${flush} ; true )`;
+    r = await runElevated(cmd, (l) => broadcast('proc:log', { source: 'mitm', line: l }));
+  }
   try { fs.unlinkSync(staged); } catch { /* ignore */ }
 
   if (!r.ok) return { ok: false, error: 'the hosts file was not written - elevation was declined or the copy failed' };
@@ -816,8 +828,13 @@ const CERT_PATH = () => path.join(os.homedir(), '.mitmproxy', 'mitmproxy-ca-cert
 
 // mitmproxy ships an official, per-version Windows installer (Inno Setup, admin-only - its manifest is requireAdministrator). We pin a known-good version, install it into Program Files silently+elevated, then add it to PATH ourselves because the installer does not modify PATH.
 const MITM_VERSION = '12.2.3';
-const MITM_INSTALLER_URL = (v) => `https://downloads.mitmproxy.org/${v}/mitmproxy-${v}-windows-x86_64-installer.exe`;
-const MITM_INSTALL_DIR = () => path.join(process.env.ProgramFiles || 'C:\\Program Files', 'mitmproxy');
+const MITM_ARCHIVE = (v) => process.platform === 'darwin' ? `mitmproxy-${v}-macos-arm64.tar.gz`
+  : process.platform === 'linux' ? `mitmproxy-${v}-linux-x86_64.tar.gz`
+  : `mitmproxy-${v}-windows-x86_64-installer.exe`;
+const MITM_INSTALLER_URL = (v) => `https://downloads.mitmproxy.org/${v}/${MITM_ARCHIVE(v)}`;
+const MITM_INSTALL_DIR = () => process.platform === 'win32'
+  ? path.join(process.env.ProgramFiles || 'C:\\Program Files', 'mitmproxy')
+  : path.join(os.homedir(), '.shittim', 'mitmproxy');
 
 const mitmTool = (name) => mitmExe(name, MITM_INSTALL_DIR());
 
@@ -845,6 +862,30 @@ function runPwsh(script, onLine) {
   });
 }
 
+function shQuote(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
+
+function runSh(command, onLine) {
+  return new Promise((resolve) => {
+    let child;
+    try { child = track(spawn('/bin/sh', ['-c', command], { env: { ...process.env } })); }
+    catch (e) { resolve({ ok: false, code: -1, out: String(e.message || e) }); return; }
+    let out = '';
+    const onData = (c) => { const s = c.toString(); out += s; if (onLine) s.split(/\r?\n/).forEach((l) => { if (l.trim()) onLine(l.replace(/\s+$/, '')); }); };
+    if (child.stdout) child.stdout.on('data', onData);
+    if (child.stderr) child.stderr.on('data', onData);
+    child.on('error', (e) => resolve({ ok: false, code: -1, out: `${out}\n${e.message}` }));
+    child.on('exit', (code) => resolve({ ok: code === 0, code, out }));
+  });
+}
+
+function runElevated(command, onLine) {
+  if (process.platform === 'darwin') {
+    const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return runSh(`osascript -e 'do shell script "${escaped}" with administrator privileges'`, onLine);
+  }
+  return runSh(`pkexec /bin/sh -c ${shQuote(command)}`, onLine);
+}
+
 // Append a directory to the persistent per-user PATH (and to this process's live PATH so spawns in the current session resolve the tool without a restart).
 async function addToUserPath(dir, step) {
   const cur = process.env.PATH || process.env.Path || '';
@@ -866,29 +907,35 @@ async function addToUserPath(dir, step) {
   return { ok: r.ok };
 }
 
-// .NET 10 SDK via Microsoft's official dotnet-install.ps1 (per-user, no admin).
+// .NET 10 SDK via Microsoft's official dotnet-install script (per-user, no admin) - .ps1 on Windows, .sh on Linux/macOS.
 async function installDotnet() {
   const step = 'dotnet';
-  if (process.platform !== 'win32') {
-    return { ok: false, error: 'Install the .NET 10 SDK yourself, then re-check: curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 (installs to ~/.dotnet), or from https://dotnet.microsoft.com/download/dotnet/10.0' };
-  }
+  const posix = process.platform !== 'win32';
   setupPhase(step, 'running', { message: '~250 MB, this can take a few minutes' });
   let tmp = null;
   let beat = null;
   try {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'scc-dotnet-'));
-    const scriptPath = path.join(tmp, 'dotnet-install.ps1');
-    setupLog(step, '> downloading dotnet-install.ps1');
-    await downloadFile('https://dot.net/v1/dotnet-install.ps1', scriptPath);
     const dir = DOTNET_DIR();
-    setupLog(step, `> dotnet-install.ps1 -Channel 10.0 -InstallDir "${dir}"`);
-    // dotnet-install.ps1 emits almost nothing during the big transfer, so keep a heartbeat going to prove the step is still alive in the log/UI.
     beat = setInterval(() => setupPhase(step, 'running', { message: 'downloading in the background' }), 3000);
-    // -NoPath: the script's session-only PATH edit is useless to us; we persist it ourselves below. The install is a no-op if the SDK is already present.
-    const ps = `& ${psQuote(scriptPath)} -Channel 10.0 -InstallDir ${psQuote(dir)} -Architecture x64 -NoPath`;
-    const r = await runPwsh(ps, (l) => setupLog(step, l));
+
+    let r;
+    if (posix) {
+      const scriptPath = path.join(tmp, 'dotnet-install.sh');
+      setupLog(step, '> downloading dotnet-install.sh');
+      await downloadFile('https://dot.net/v1/dotnet-install.sh', scriptPath);
+      setupLog(step, `> dotnet-install.sh --channel 10.0 --install-dir "${dir}"`);
+      r = await runSh(`chmod +x ${shQuote(scriptPath)} && ${shQuote(scriptPath)} --channel 10.0 --install-dir ${shQuote(dir)} --no-path`, (l) => setupLog(step, l));
+    } else {
+      const scriptPath = path.join(tmp, 'dotnet-install.ps1');
+      setupLog(step, '> downloading dotnet-install.ps1');
+      await downloadFile('https://dot.net/v1/dotnet-install.ps1', scriptPath);
+      setupLog(step, `> dotnet-install.ps1 -Channel 10.0 -InstallDir "${dir}"`);
+      const ps = `& ${psQuote(scriptPath)} -Channel 10.0 -InstallDir ${psQuote(dir)} -Architecture x64 -NoPath`;
+      r = await runPwsh(ps, (l) => setupLog(step, l));
+    }
     clearInterval(beat); beat = null;
-    if (!r.ok) { setupPhase(step, 'failed', { message: 'dotnet-install.ps1 failed' }); return { ok: false, error: 'dotnet-install.ps1 failed', out: r.out }; }
+    if (!r.ok) { setupPhase(step, 'failed', { message: 'dotnet-install failed' }); return { ok: false, error: 'dotnet-install failed', out: r.out }; }
     // A base SDK without the ASP.NET Core Web SDK still builds far enough to fail with "SDK 'Microsoft.NET.Sdk.Web' could not be found" - catch that here rather than letting the first server launch surface it.
     if (!hasWebSdk(dir)) {
       setupPhase(step, 'failed', { message: 'Install finished but the ASP.NET Core Web SDK is missing - re-run install.' });
@@ -907,12 +954,9 @@ async function installDotnet() {
   }
 }
 
-// mitmproxy: download the official pinned Windows installer and run it silently+elevated into Program Files, then add the install dir to PATH (the installer itself never modifies PATH).
 async function installMitmproxy() {
   const step = 'mitmproxy';
-  if (process.platform !== 'win32') {
-    return { ok: false, error: `Install mitmproxy yourself, then re-check: ${process.platform === 'darwin' ? 'brew install mitmproxy' : 'pipx install mitmproxy'} (or download from https://mitmproxy.org/)` };
-  }
+  if (process.platform !== 'win32') return installMitmproxyPosix();
   setupPhase(step, 'running', { message: `Downloading mitmproxy ${MITM_VERSION}...` });
   let tmp = null;
   try {
@@ -934,6 +978,40 @@ async function installMitmproxy() {
 
     const binDir = findMitmBinDir(dir);
     if (!binDir) throw new Error(`mitmweb.exe not found under ${dir} after install`);
+    await addToUserPath(binDir, step);
+    setupPhase(step, 'done', { message: `mitmproxy ${MITM_VERSION} installed` });
+    return { ok: true, dir: binDir };
+  } catch (e) {
+    setupPhase(step, 'failed', { message: String(e.message || e) });
+    return { ok: false, error: String(e.message || e) };
+  } finally {
+    if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ } }
+  }
+}
+
+async function installMitmproxyPosix() {
+  const step = 'mitmproxy';
+  setupPhase(step, 'running', { message: `Downloading mitmproxy ${MITM_VERSION}...` });
+  let tmp = null;
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'scc-mitm-'));
+    const archive = path.join(tmp, MITM_ARCHIVE(MITM_VERSION));
+    const url = MITM_INSTALLER_URL(MITM_VERSION);
+    setupLog(step, `> downloading ${url}`);
+    await downloadFile(url, archive, (recv, total) => broadcast('setup:progress', { step, recv, total }));
+
+    const dir = MITM_INSTALL_DIR();
+    fs.mkdirSync(dir, { recursive: true });
+    setupLog(step, `> extracting into ${dir}`);
+    const r = await runSh(`tar -xzf ${shQuote(archive)} -C ${shQuote(dir)}`, (l) => setupLog(step, l));
+    if (!r.ok) { setupPhase(step, 'failed', { message: 'could not extract the mitmproxy archive' }); return { ok: false, error: 'tar failed to extract mitmproxy', out: r.out }; }
+
+    const binDir = findMitmBinDir(dir);
+    if (!binDir) throw new Error(`mitmweb not found under ${dir} after extract`);
+    for (const t of ['mitmweb', 'mitmdump', 'mitmproxy']) {
+      const f = path.join(binDir, t);
+      if (fs.existsSync(f)) { try { fs.chmodSync(f, 0o755); } catch { /* ignore */ } }
+    }
     await addToUserPath(binDir, step);
     setupPhase(step, 'done', { message: `mitmproxy ${MITM_VERSION} installed` });
     return { ok: true, dir: binDir };
@@ -969,13 +1047,6 @@ function generateMitmCert(step) {
 // Trust the mitmproxy CA. Generates it first if it has never been created, then adds it to the machine root store via certutil (one elevation prompt).
 async function installCertificate() {
   const step = 'certificate';
-  if (process.platform !== 'win32') {
-    const cert = CERT_PATH();
-    const how = process.platform === 'darwin'
-      ? `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${cert}`
-      : `sudo cp ${cert} /etc/ca-certificates/trust-source/anchors/shittim-mitm.crt && sudo update-ca-trust`;
-    return { ok: false, error: `Trust the mitmproxy CA yourself, then re-check: ${how} (or open http://mitm.it while the proxy runs)` };
-  }
   setupPhase(step, 'running', { message: 'Preparing CA certificate...' });
   try {
     const certPath = CERT_PATH();
@@ -984,17 +1055,35 @@ async function installCertificate() {
       await generateMitmCert(step);
     }
     if (!fs.existsSync(certPath)) throw new Error('mitmproxy CA certificate was not generated - install mitmproxy first.');
-    setupLog(step, '> trusting CA in machine root store (certutil - approve the elevation prompt)...');
-    // Machine root store is what the Steam client validates against, so it needs admin. Start-Process -Verb RunAs raises the single UAC prompt.
-    const ps = `$p = Start-Process -FilePath 'certutil.exe' -ArgumentList @('-addstore','-f','Root', ${psQuote(certPath)}) -Verb RunAs -PassThru -Wait; exit $p.ExitCode`;
-    const r = await runPwsh(ps, (l) => setupLog(step, l));
-    if (!r.ok) { setupPhase(step, 'failed', { message: 'certutil failed or elevation was declined' }); return { ok: false, error: 'certutil failed or elevation was declined', out: r.out }; }
+
+    if (process.platform === 'win32') {
+      setupLog(step, '> trusting CA in machine root store (certutil - approve the elevation prompt)...');
+      const ps = `$p = Start-Process -FilePath 'certutil.exe' -ArgumentList @('-addstore','-f','Root', ${psQuote(certPath)}) -Verb RunAs -PassThru -Wait; exit $p.ExitCode`;
+      const r = await runPwsh(ps, (l) => setupLog(step, l));
+      if (!r.ok) { setupPhase(step, 'failed', { message: 'certutil failed or elevation was declined' }); return { ok: false, error: 'certutil failed or elevation was declined', out: r.out }; }
+    } else {
+      const r = await trustCertPosix(step, certPath);
+      if (!r.ok) { setupPhase(step, 'failed', { message: r.error }); return r; }
+    }
     setupPhase(step, 'done', { message: 'CA certificate trusted', certPath });
     return { ok: true, certPath };
   } catch (e) {
     setupPhase(step, 'failed', { message: String(e.message || e) });
     return { ok: false, error: String(e.message || e) };
   }
+}
+
+async function trustCertPosix(step, certPath) {
+  if (process.platform === 'darwin') {
+    setupLog(step, '> trusting CA in the System keychain (approve the admin prompt)...');
+    const r = await runElevated(`security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${shQuote(certPath)}`, (l) => setupLog(step, l));
+    return r.ok ? { ok: true } : { ok: false, error: 'security add-trusted-cert failed or the admin prompt was declined', out: r.out };
+  }
+  setupLog(step, '> trusting CA via update-ca-trust (approve the pkexec prompt)...');
+  const anchor = '/etc/ca-certificates/trust-source/anchors/shittim-mitm.crt';
+  const cmd = `steamos-readonly disable 2>/dev/null || true ; install -Dm644 ${shQuote(certPath)} ${anchor} && update-ca-trust ; ec=$? ; steamos-readonly enable 2>/dev/null || true ; exit $ec`;
+  const r = await runElevated(cmd, (l) => setupLog(step, l));
+  return r.ok ? { ok: true } : { ok: false, error: 'update-ca-trust failed or the pkexec prompt was declined', out: r.out };
 }
 
 const INSTALLERS = {

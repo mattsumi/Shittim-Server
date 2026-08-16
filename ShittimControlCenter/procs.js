@@ -5,6 +5,14 @@ const { StringDecoder } = require('string_decoder');
 
 const WIN = process.platform === 'win32';
 
+function posixSignal(pid, sig) {
+  try { process.kill(-pid, sig); return ''; }
+  catch (e) {
+    if (e.code === 'ESRCH') { try { process.kill(pid, sig); return ''; } catch (e2) { return e2.code === 'ESRCH' ? '' : String(e2.message || e2); } }
+    return String(e.message || e);
+  }
+}
+
 function alive(pid, run) {
   if (!pid) return Promise.resolve(false);
   if (!WIN) {
@@ -25,10 +33,7 @@ async function killTree(pid, opts = {}) {
   if (!(await alive(pid, run))) return { ok: true, already: true };
 
   const said = await new Promise((resolve) => {
-    if (!WIN) {
-      try { process.kill(pid, 'SIGTERM'); resolve(''); } catch (e) { resolve(String(e.message || e)); }
-      return;
-    }
+    if (!WIN) { resolve(posixSignal(pid, 'SIGTERM')); return; }
     run('taskkill', ['/pid', String(pid), '/T', '/F'], (err, stdout, stderr) => resolve(`${stdout || ''}${stderr || ''}`.trim()));
   });
 
@@ -36,9 +41,20 @@ async function killTree(pid, opts = {}) {
     if (!(await alive(pid, run))) return { ok: true };
     await sleep(gap);
   }
+
+  if (!WIN) {
+    posixSignal(pid, 'SIGKILL');
+    for (let i = 0; i < tries; i++) {
+      if (!(await alive(pid, run))) return { ok: true };
+      await sleep(gap);
+    }
+  }
   // Access is denied from taskkill means the target is running with rights we do not have, which is what a server started from an elevated shell looks like. There is nothing to retry and nothing in here that fixes it, so the message has to send the user somewhere that does rather than repeating that the pid is still running.
-  if (/access is denied/i.test(said)) {
-    return { ok: false, error: `${said} - it is running with administrator rights this Control Center does not have. End it from Task Manager, or start the Control Center as administrator.` };
+  if (/access is denied/i.test(said) || /EPERM|not permitted/i.test(said)) {
+    const advice = WIN
+      ? 'it is running with administrator rights this Control Center does not have. End it from Task Manager, or start the Control Center as administrator.'
+      : 'it is running with rights this Control Center does not have. End it yourself (sudo kill), or start the Control Center with those rights.';
+    return { ok: false, error: `${said} - ${advice}` };
   }
   return { ok: false, error: said || `pid ${pid} is still running` };
 }
