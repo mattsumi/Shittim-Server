@@ -5,6 +5,7 @@ import { el, frag, clear, select, button, toast, escapeHtml, batched } from './u
 import { api, store, reloadAccounts } from './api.js';
 import { serverHealth } from './health.js';
 import { renderProjectGate } from './project-gate.js';
+import { autoSetup } from './readiness.js';
 
 import overview from './pages/overview.js';
 import config from './pages/config.js';
@@ -421,6 +422,8 @@ async function boot() {
   await api.refreshBase();
   store.set({ probeTarget: api.hostPort() });
   schedulePoll(true);
+
+  autoSetup(document.getElementById('restartSlot'));
 }
 
 // Module scripts are deferred, so the DOM is already parsed here.

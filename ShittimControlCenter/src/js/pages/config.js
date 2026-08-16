@@ -1,5 +1,6 @@
 import { el, frag, clear, button, input, toggle, field, toast, modal, textarea, confirmDialog } from '../ui.js';
 import { store } from '../api.js';
+import { mountReadiness } from '../readiness.js';
 
 // Defaults mirror Shittim-Server/Configuration/ConfigType/ServerConfig.cs.
 // Reset overwrites only these editable ServerConfiguration fields, preserving GameVersion, gateway keys, ClientPluginDirectory and the Irc/DataFetcher sibling sections in Config.json.
@@ -95,6 +96,13 @@ export default {
   needsTarget: false,
 
   async mount(root, { rerender }) {
+    const readyBody = el('div', {});
+    root.appendChild(el('div.card', { style: { marginBottom: '18px' } },
+      el('div.card-head', {}, el('span.tab-mark', {}), el('h3', { text: 'Environment readiness' }),
+        el('span.sub', { text: 'prerequisites for running the server' })),
+      el('div.card-body', {}, readyBody)));
+    mountReadiness(readyBody, { compact: true });
+
     const cfg = await window.host.configRead();
     if (!cfg.ok) {
       root.appendChild(frag(`<div class="empty"><b>No configuration found</b><span><span class="mono" data-selectable style="word-break:break-all">${cfg.path}</span><br>It is generated the first time the server runs.</span></div>`));

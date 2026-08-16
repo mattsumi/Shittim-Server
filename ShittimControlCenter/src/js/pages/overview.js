@@ -1,16 +1,5 @@
 import { el, frag, clear, button, toast } from '../ui.js';
 
-function diagRow(name, info, fixBtn) {
-  const status = info?.status || 'missing';
-  const row = frag(`<div class="diag-row">
-    <span class="d-led ${status}"></span>
-    <span class="d-name">${name}</span>
-    <span class="d-detail">${(info?.detail || '').replace(/</g, '&lt;')}</span>
-  </div>`);
-  if (fixBtn) row.appendChild(fixBtn);
-  return row;
-}
-
 export default {
   id: 'overview',
   title: 'Overview',
@@ -18,13 +7,6 @@ export default {
   needsTarget: false,
 
   mount(root) {
-    const diagBody = el('div.diag', { style: { minWidth: '0' } });
-
-    let busy = false;
-    const refreshBtn = button('Re-check', { variant: 'ghost', sm: true, iconName: 'refresh', onClick: () => loadDiag() });
-    const setupBtn = button('Install missing', { variant: 'primary', sm: true, iconName: 'download', onClick: () => runSetup('all') });
-    const readiness = cardWith('Environment readiness', null, [setupBtn, refreshBtn], diagBody);
-
     const shortcutBody = el('div.row.wrap', { style: { gap: '10px', minWidth: '0' } });
     const shortcuts = [
       ['Server folder', 'folder', (p) => p.serverDir],
@@ -68,34 +50,10 @@ export default {
     }});
     const diagnostics = cardWith('Diagnostics', null, [],
       el('div', {}, exportBtn,
-        el('p', { text: 'Bundles the server log and a diagnostic snapshot into a zip to attach to bug reports.', style: { fontSize: '12.5px', color: 'var(--ink-3)', margin: '12px 0 0', lineHeight: '1.6' } })));
+        el('p', { text: 'Bundles the server log and a diagnostic snapshot into a zip to attach to bug reports. Prerequisites and setup live under Configuration.', style: { fontSize: '12.5px', color: 'var(--ink-3)', margin: '12px 0 0', lineHeight: '1.6' } })));
 
-    const right = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px', minWidth: '0' } }, offlineCard, shortcutsCard, diagnostics);
-    root.appendChild(el('div.grid-2', { style: { gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', alignItems: 'start' } }, readiness, right));
-
-    function nodeAction(node) {
-      if (node.status === 'ready') return null;
-      if (node.canInstall && !busy) {
-        const label = node.action === 'trust' ? 'Trust cert' : 'Install';
-        return button(label, { variant: 'ghost', sm: true, iconName: 'download', onClick: () => runSetup(node.id) });
-      }
-      if (node.explain) return el('span.d-explain', { text: node.explain, style: { fontSize: '11.5px', color: 'var(--ink-3)', flexBasis: '100%', marginTop: '4px' } });
-      return null;
-    }
-
-    async function loadDiag() {
-      diagBody.innerHTML = `<div class="empty"><div class="spinner"></div></div>`;
-      try {
-        const env = await window.host.envCheck();
-        clear(diagBody);
-        for (const node of env.nodes)
-          diagBody.appendChild(diagRow(node.label, node, nodeAction(node)));
-        const anyInstallable = env.nodes.some((n) => n.blocking && n.canInstall && n.status !== 'ready');
-        setupBtn.disabled = busy || !anyInstallable;
-      } catch (e) {
-        diagBody.innerHTML = `<div class="empty"><b>Check failed</b><span>${String(e.message || e)}</span></div>`;
-      }
-    }
+    root.appendChild(offlineCard);
+    root.appendChild(el('div.grid-2', { style: { alignItems: 'start', marginTop: '18px' } }, shortcutsCard, diagnostics));
 
     async function loadOffline() {
       try {
@@ -136,75 +94,6 @@ export default {
       }
     }
 
-    // The .NET SDK download (~250 MB) is silent for minutes, so a spinner plus an always-ticking elapsed counter is what stops it reading as "hung".
-    function setupPanel() {
-      const titleEl = el('div', { style: { fontWeight: '700', fontSize: '13.5px' } });
-      const subEl = el('div', { style: { fontSize: '12px', color: 'var(--ink-3)', marginTop: '3px' } });
-      const logEl = el('div.mono', { style: { fontSize: '11px', color: 'var(--ink-3)', marginTop: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '0' } });
-      const wrap = el('div', { style: { display: 'flex', gap: '13px', alignItems: 'flex-start', padding: '16px 4px' } },
-        frag('<div class="spinner"></div>'),
-        el('div', { style: { minWidth: '0', flex: '1' } }, titleEl, subEl, logEl));
-      return { wrap, titleEl, subEl, logEl };
-    }
-
-    function fmtMB(n) { return `${(n / (1024 * 1024)).toFixed(0)} MB`; }
-
-    // mitmproxy/.NET install per-user (silent); trusting the CA raises one Windows elevation prompt.
-    async function runSetup(which) {
-      if (busy) return;
-      busy = true;
-      setupBtn.disabled = true; refreshBtn.disabled = true;
-      const labels = { dotnet: '.NET 10 SDK', mitmproxy: 'mitmproxy', certificate: 'CA certificate' };
-
-      clear(diagBody);
-      const panel = setupPanel();
-      diagBody.appendChild(panel.wrap);
-
-      let plan = null;
-      let curStep = which === 'all' ? null : which;
-      let msg = 'Starting...';
-      const t0 = Date.now();
-      const elapsed = () => { const s = Math.floor((Date.now() - t0) / 1000); const m = Math.floor(s / 60); return m ? `${m}m ${s % 60}s` : `${s}s`; };
-      const stepName = (id) => labels[id] || id;
-      const render = () => {
-        const pos = plan && curStep ? ` (${plan.indexOf(curStep) + 1}/${plan.length})` : '';
-        panel.titleEl.textContent = curStep ? `Installing ${stepName(curStep)}${pos}...` : 'Working out what needs installing...';
-        panel.subEl.textContent = `${msg} - ${elapsed()} elapsed`;
-      };
-      render();
-      // tick every second so the elapsed time always moves, even while a step is mid-download and emitting nothing
-      const timer = setInterval(render, 1000);
-
-      const unsub = window.host.onSetupProgress((d) => {
-        if (Array.isArray(d.plan)) { plan = d.plan; if (!curStep) curStep = plan[0] || null; }
-        if (d.step && labels[d.step]) curStep = d.step;
-        if (typeof d.recv === 'number' && d.total) msg = `Downloading... ${fmtMB(d.recv)} / ${fmtMB(d.total)}`;
-        else if (d.status === 'running' && d.message) msg = d.message;
-        if (d.line) panel.logEl.textContent = d.line;
-        if (d.status === 'done') { msg = d.message || `${labels[d.step] || d.step} ready`; toast(msg, 'good'); }
-        if (d.status === 'failed') { msg = d.message || `${labels[d.step] || d.step} failed`; toast(msg, 'bad'); }
-        render();
-      });
-
-      try {
-        const res = await window.host.setupInstall(which);
-        if (res.ok) toast('All prerequisites are ready.', 'good', 'Setup complete');
-        else {
-          const failed = Object.entries(res.results || {}).filter(([, r]) => r && !r.ok).map(([k]) => labels[k] || k);
-          toast(failed.length ? `Couldn't complete: ${failed.join(', ')}.` : (res.error || 'Setup did not finish.'), 'bad', 'Setup incomplete');
-        }
-      } catch (e) {
-        toast(String(e.message || e), 'bad', 'Setup failed');
-      } finally {
-        clearInterval(timer);
-        unsub();
-        busy = false;
-        refreshBtn.disabled = false;
-        await loadDiag();
-      }
-    }
-
-    loadDiag();
     loadOffline();
   },
 };
