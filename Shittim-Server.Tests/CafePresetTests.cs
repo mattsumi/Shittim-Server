@@ -10,14 +10,17 @@ using Schale.MappingProfiles;
 using Schale.MX.NetworkProtocol;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
-public class CafePresetTests
+public class CafePresetTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task ApplyingATemplateBringsItsOwnFloorWallpaperAndBackground()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var cafe = NewCafe(db, account);
@@ -38,13 +41,15 @@ public class CafePresetTests
     [Fact]
     public async Task ApplyingATemplateConsumesAnOwnedStackWithoutDuplicatingTheRow()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var cafe = NewCafe(db, account);
 
         var background = Excels.GetTable<FurnitureTemplateElementExcelT>()
             .Where(x => x.FurnitureTemplateId == 1)
-            .First(x => Excels.GetTable<FurnitureExcelT>().First(f => f.Id == x.FurnitureId).SubCategory == FurnitureSubCategory.Background);
+            .First(x => Excels!.GetTable<FurnitureExcelT>().First(f => f.Id == x.FurnitureId).SubCategory == FurnitureSubCategory.Background);
 
         db.Furnitures.Add(new FurnitureDBServer { AccountServerId = account.ServerId, UniqueId = background.FurnitureId, Location = FurnitureLocation.Inventory, StackCount = 1, ItemDeploySequence = 0 });
         db.SaveChanges();
@@ -60,6 +65,8 @@ public class CafePresetTests
     [Fact]
     public async Task RemoveAllLeavesTheInteriorsAlone()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var cafe = NewCafe(db, account);
@@ -81,6 +88,8 @@ public class CafePresetTests
     [Fact]
     public async Task LoginRepairReturnsOrphanedDeployedRowsToInventory()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var cafe = NewCafe(db, account);
@@ -101,6 +110,8 @@ public class CafePresetTests
     [Fact]
     public async Task LoginRepairReseedsACafeMissingItsInteriors()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var cafe = NewCafe(db, account);
@@ -120,6 +131,8 @@ public class CafePresetTests
     [Fact]
     public async Task VisitorsRollOnceAndHoldUntilTheNextReset()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var cafe = NewCafe(db, account);
@@ -145,26 +158,33 @@ public class CafePresetTests
         Assert.True(cafe.VisitUpdateTime > rolledAt.AddDays(-1));
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
     private static CafeManager Manager() =>
-        new(Excels, new ParcelHandler(Excels, Mapper), new ConsumeHandler(Excels, Mapper), Mapper);
+        new(Excels!, new ParcelHandler(Excels!, Mapper), new ConsumeHandler(Excels!, Mapper), Mapper);
 
     private static CafeDBServer NewCafe(SchaleDataContext db, AccountDBServer account)
     {

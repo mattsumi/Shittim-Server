@@ -14,15 +14,18 @@ using Schale.MX.NetworkProtocol;
 using Shittim_Server.Managers;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // Every reward group carries its FirstClear and ThreeStar rows at 100% next to the drops, so any path that rolls the whole group pays the once-per-account pyroxene on every replay - which is exactly what sweeps and sub-stage clears did.
-public class CampaignRewardGatingTests
+public class CampaignRewardGatingTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task OnlyTheFirstClearPaysTheFirstClearRows()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var stageId = FirstNormalStage();
@@ -37,6 +40,8 @@ public class CampaignRewardGatingTests
     [Fact]
     public async Task TheThreeStarPyroxeneWaitsForTheRunThatCompletesTheStars()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var stageId = FirstNormalStage();
@@ -56,6 +61,8 @@ public class CampaignRewardGatingTests
     [Fact]
     public async Task AReclearGrantsNoPyroxeneThroughTheDropRoll()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var stageId = FirstNormalStage();
@@ -69,6 +76,8 @@ public class CampaignRewardGatingTests
     [Fact]
     public void SweepDropsAreRolledToConcreteItemsBeforeDisplay()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         // the group's GachaGroup rows are IsDisplayed=false; sent raw they render as blank cells in the client's sweep result
         var stage = Excels.GetTable<CampaignStageExcelT>().First(x => x.Id == FirstNormalStage());
         var rewards = Excels.GetTable<CampaignStageRewardExcelT>().GetAllRewardsByGroupId(stage.CampaignStageRewardId);
@@ -111,25 +120,32 @@ public class CampaignRewardGatingTests
     }
 
     private static long FirstNormalStage() =>
-        Excels.GetTable<CampaignChapterExcelT>().First(x => x.NormalCampaignStageId is { Count: > 0 }).NormalCampaignStageId[0];
+        Excels!.GetTable<CampaignChapterExcelT>().First(x => x.NormalCampaignStageId is { Count: > 0 }).NormalCampaignStageId[0];
 
-    private static CampaignManager Manager() => new(Excels, new ParcelHandler(Excels, Mapper), Mapper);
+    private static CampaignManager Manager() => new(Excels!, new ParcelHandler(Excels!, Mapper), Mapper);
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 

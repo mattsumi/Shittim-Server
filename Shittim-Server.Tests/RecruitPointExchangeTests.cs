@@ -11,15 +11,18 @@ using Schale.MX.GameLogic.Parcel;
 using Schale.MX.NetworkProtocol;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // The recruitment point exchange rides Shop_BuyGacha3 like every other banner buy, and the only thing separating it from one is the RecruitSellection goods row. Miss that and the coin item has no GachaTicket type, the amount-by-item lookup falls through to 10, and a student purchase comes out a ten-pull.
-public class RecruitPointExchangeTests
+public class RecruitPointExchangeTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task SpendingRecruitPointsGrantsTheChosenStudentInsteadOfTenPulls()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -49,6 +52,8 @@ public class RecruitPointExchangeTests
     [Fact]
     public async Task ExchangingAnOwnedStudentPaysOutStonesNotADuplicateRow()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -74,6 +79,8 @@ public class RecruitPointExchangeTests
     [Fact]
     public async Task ATenPullGoodsIsStillRolledNotExchanged()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -89,7 +96,7 @@ public class RecruitPointExchangeTests
 
     private static (GoodsExcelT, long coinId, long coinAmount, long characterId) ExchangeGoods()
     {
-        var shops = Excels.GetTable<ShopExcelT>();
+        var shops = Excels!.GetTable<ShopExcelT>();
         var goods = Excels.GetTable<GoodsExcelT>();
         var released = Excels.GetTable<CharacterExcelT>().GetReleaseCharacters().Select(x => x.Id).ToHashSet();
 
@@ -116,26 +123,33 @@ public class RecruitPointExchangeTests
         throw new InvalidOperationException("no recruit point exchange goods in the dumped excels");
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
     private static ShopManager Manager() =>
-        new(Excels, new SharedDataCacheService(Excels), new ParcelHandler(Excels, Mapper), Mapper);
+        new(Excels!, new SharedDataCacheService(Excels!), new ParcelHandler(Excels!, Mapper), Mapper);
 
     private static SchaleDataContext NewContext()
     {

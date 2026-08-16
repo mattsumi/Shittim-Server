@@ -12,16 +12,19 @@ using Schale.MX.NetworkProtocol;
 using Shittim_Server.Managers;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // The client's CampaignService filters histories on IsClearedEver before comparing StageUniqueIds against a stage's prerequisites - it is the only field a history row unlocks anything with.
 // The sub-stage and strategy-skip clear paths built their rows through the ctor, which never set it, so hard tabs, extra stages and the next chapter stayed locked no matter how much was cleared.
-public class CampaignClearUnlockTests
+public class CampaignClearUnlockTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task ASubStageClearCountsForUnlocks()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var stageId = FirstNormalStage();
@@ -39,6 +42,8 @@ public class CampaignClearUnlockTests
     [Fact]
     public async Task AReclearBackfillsARowMissingTheFlag()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var stageId = FirstNormalStage();
@@ -72,25 +77,32 @@ public class CampaignClearUnlockTests
     };
 
     private static long FirstNormalStage() =>
-        Excels.GetTable<CampaignChapterExcelT>().First(x => x.NormalCampaignStageId is { Count: > 0 }).NormalCampaignStageId[0];
+        Excels!.GetTable<CampaignChapterExcelT>().First(x => x.NormalCampaignStageId is { Count: > 0 }).NormalCampaignStageId[0];
 
-    private static CampaignManager Manager() => new(Excels, new ParcelHandler(Excels, Mapper), Mapper);
+    private static CampaignManager Manager() => new(Excels!, new ParcelHandler(Excels!, Mapper), Mapper);
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 

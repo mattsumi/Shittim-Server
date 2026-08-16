@@ -2,16 +2,19 @@ using System.Text;
 using BlueArchiveAPI.Services;
 using Schale.FlatData;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // Started life as a dump of CurrencyExcel and one stage's reward group. The two things it was actually being read for are asserted now: AP is the only currency that auto-charges past its limit, and every stage reward group carries its FirstClear/ThreeStar rows at prob 10000 in among the Default drops, which is why rolling the whole group hands out the clear bonus on every sweep.
-public class ProbeCurrencyLimitTests
+public class ProbeCurrencyLimitTests(ITestOutputHelper output)
 {
     [Fact]
     public void ActionPointIsTheOnlyCurrencyThatChargesPastItsLimit()
     {
         var excels = Excels();
+        if (excels is null) { SkipNote(); return; }
+
         var currencies = excels.GetTable<CurrencyExcelT>();
 
         var ap = currencies.Single(x => x.CurrencyType == CurrencyTypes.ActionPoint);
@@ -26,6 +29,8 @@ public class ProbeCurrencyLimitTests
     public void AStageRewardGroupCarriesItsClearBonusAlongsideTheDrops()
     {
         var excels = Excels();
+        if (excels is null) { SkipNote(); return; }
+
         var stages = excels.GetTable<CampaignStageExcelT>();
         var stage = stages.First(x => x.Name != null && x.Name.Contains("Normal_Main"));
         var rows = excels.GetTable<CampaignStageRewardExcelT>().Where(x => x.GroupId == stage.CampaignStageRewardId).ToList();
@@ -44,19 +49,26 @@ public class ProbeCurrencyLimitTests
         Assert.All(rows.Where(x => !x.IsDisplayed), x => Assert.Equal(ParcelType.GachaGroup, x.StageRewardParcelType));
     }
 
-    private static ExcelTableService Excels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? Excels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 }

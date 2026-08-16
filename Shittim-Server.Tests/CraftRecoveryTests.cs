@@ -11,15 +11,18 @@ using Schale.MX.NetworkProtocol;
 using Shittim_Server.Core.NetworkProtocol.Handlers;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // a craft slot that grew past the legal five nodes (the old SelectNode kept appending tier-4 dupes once the final node rolled no leaves) is resent forever by Craft_List, and the client replays a broken node animation and bails to the lobby on every menu open.
-public class CraftRecoveryTests
+public class CraftRecoveryTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task CraftListDropsASlotWithDuplicateTierNodes()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -51,6 +54,8 @@ public class CraftRecoveryTests
     [Fact]
     public async Task CraftListKeepsAHealthyInProgressSlot()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -78,6 +83,8 @@ public class CraftRecoveryTests
     [Fact]
     public async Task SelectingPastAMaxedNodeThrowsInsteadOfDuplicatingATier()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -105,27 +112,34 @@ public class CraftRecoveryTests
         Assert.Equal(5, db.CraftInfos.Single(x => x.AccountServerId == account.ServerId).Nodes!.Count);
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
     private static CraftHandler Handler() => new(
-        null!, new FixedSessionService(), Excels, Mapper,
-        new ConsumeHandler(Excels, Mapper), new ParcelHandler(Excels, Mapper), new MissionService(Excels, Mapper));
+        null!, new FixedSessionService(), Excels!, Mapper,
+        new ConsumeHandler(Excels!, Mapper), new ParcelHandler(Excels!, Mapper), new MissionService(Excels!, Mapper));
 
     private static SessionKey Key(AccountDBServer account) => new() { AccountServerId = account.ServerId, MxToken = "t" };
 

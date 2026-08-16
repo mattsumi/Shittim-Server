@@ -10,15 +10,18 @@ using Schale.MX.NetworkProtocol;
 using Shittim_Server.Managers;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // What a selection box hands over is whatever its recipe chain resolves to, and the chain lives in the dumped excels, so these run against the real ones. Anything that skips it and assumes a character writes a character row keyed by a furniture id, and one of those is enough to make the client abort every later login sync.
-public class ItemBoxTests
+public class ItemBoxTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task AFurniturePickFromASelectBoxLandsAsFurniture()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -42,6 +45,8 @@ public class ItemBoxTests
     [Fact]
     public async Task UsingOneBoxFromABigStackReportsTheRemainderInUsedItemDB()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -62,6 +67,8 @@ public class ItemBoxTests
     [Fact]
     public async Task UsingTheLastBoxReportsAZeroStackInUsedItemDB()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -83,6 +90,8 @@ public class ItemBoxTests
     [Fact]
     public async Task ASelectionOutsideTheBoxsPoolCannotCreateACharacterRow()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -103,6 +112,8 @@ public class ItemBoxTests
     [Fact]
     public async Task ARandomFurnitureBoxOpensThroughItemConsume()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -121,29 +132,36 @@ public class ItemBoxTests
         Assert.NotNull(result);
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
-    private static ItemManager Manager() => new(Excels, new ParcelHandler(Excels, Mapper));
+    private static ItemManager Manager() => new(Excels!, new ParcelHandler(Excels!, Mapper));
 
     private static (ItemExcelT, RecipeSelectionGroupExcelT) FurnitureSelectBox()
     {
-        var recipes = Excels.GetTable<RecipeExcelT>();
+        var recipes = Excels!.GetTable<RecipeExcelT>();
         var groups = Excels.GetTable<RecipeSelectionGroupExcelT>();
 
         foreach (var item in Excels.GetTable<ItemExcelT>().Where(x => x.UsingResultParcelType == ParcelType.Recipe))
@@ -160,7 +178,7 @@ public class ItemBoxTests
 
     private static ItemExcelT AllFurnitureGachaBox()
     {
-        var elements = Excels.GetTable<GachaElementExcelT>();
+        var elements = Excels!.GetTable<GachaElementExcelT>();
 
         // a group mixing furniture with anything else would make the assertion flake on the roll
         return Excels.GetTable<ItemExcelT>().First(x =>

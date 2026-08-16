@@ -10,14 +10,17 @@ using Schale.MX.NetworkProtocol;
 using Shittim_Server.Core.NetworkProtocol.Handlers;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
-public class ClaimAllTests
+public class ClaimAllTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task ClaimAllOnTheAllTabClaimsACompletedCafeDaily()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var daily = CompletedCafeDaily(db, account);
@@ -34,6 +37,8 @@ public class ClaimAllTests
     [Fact]
     public async Task ClaimAllOnTheDailyTabClaimsACompletedCafeDaily()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var daily = CompletedCafeDaily(db, account);
@@ -48,6 +53,8 @@ public class ClaimAllTests
     [Fact]
     public async Task AZeroEventContentIdDoesNotFilterEveryMissionOut()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
         var daily = CompletedCafeDaily(db, account);
@@ -61,7 +68,7 @@ public class ClaimAllTests
 
     private static MissionExcelT CompletedCafeDaily(SchaleDataContext db, AccountDBServer account)
     {
-        var daily = Excels.GetTable<MissionExcelT>().First(x =>
+        var daily = Excels!.GetTable<MissionExcelT>().First(x =>
             x.Category == MissionCategory.Daily && x.CompleteConditionType == MissionCompleteConditionType.Reset_CafeInteractionCount);
 
         db.MissionProgresses.Add(new MissionProgressDBServer
@@ -76,27 +83,34 @@ public class ClaimAllTests
         return daily;
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
     private static MissionHandler Handler() => new(
-        null!, new FixedSessionService(), Mapper, Excels,
-        new ParcelHandler(Excels, Mapper), new MissionService(Excels, Mapper));
+        null!, new FixedSessionService(), Mapper, Excels!,
+        new ParcelHandler(Excels!, Mapper), new MissionService(Excels!, Mapper));
 
     private static SessionKey Key(AccountDBServer account) => new() { AccountServerId = account.ServerId, MxToken = "t" };
 

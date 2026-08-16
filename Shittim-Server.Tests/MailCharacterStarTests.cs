@@ -10,15 +10,18 @@ using Schale.MappingProfiles;
 using Schale.MX.GameLogic.Parcel;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // a character delivered as a mail attachment went through ParcelResolver.UpdateCharacter, which never set StarGrade, so every 3-star welfare student arrived at 1 star. gacha and the GM paths were unaffected because they build the row themselves.
-public class MailCharacterStarTests
+public class MailCharacterStarTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task ACharacterGrantedAsAParcelArrivesAtItsDefaultStarGrade()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -32,6 +35,8 @@ public class MailCharacterStarTests
     [Fact]
     public async Task ADuplicateCharacterParcelStillConvertsToEleph()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -44,25 +49,32 @@ public class MailCharacterStarTests
         Assert.Equal(excel.CharacterPieceItemAmount, db.Items.Single(x => x.AccountServerId == account.ServerId && x.UniqueId == excel.CharacterPieceItemId).StackCount);
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
-    private static ParcelHandler Handler() => new(Excels, Mapper);
+    private static ParcelHandler Handler() => new(Excels!, Mapper);
 
     private static SchaleDataContext NewContext()
     {

@@ -13,26 +13,33 @@ using Shittim.GameMasters;
 using Shittim.Services.WebClient;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 public class RaidSeasonChangeTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"shittim-season-{Guid.NewGuid():N}.sqlite3");
-    private readonly ExcelTableService _excels;
+    private readonly ExcelTableService? _excels;
+    private readonly ITestOutputHelper output;
 
-    public RaidSeasonChangeTests()
+    public RaidSeasonChangeTests(ITestOutputHelper output)
     {
+        this.output = output;
+
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
+
+        if (dumped is null) return;
+        ExcelTableService.DumpedDir = dumped;
 
         _excels = new ExcelTableService();
 
@@ -45,9 +52,15 @@ public class RaidSeasonChangeTests : IDisposable
         seed.SaveChanges();
     }
 
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
     [Fact]
     public async Task TotalAssaultSeasonChangeReachesTheLobby()
     {
+        if (_excels is null) { SkipNote(); return; }
+
         var manager = new RaidManager(_excels);
 
         using (var db = NewContext())
@@ -67,6 +80,8 @@ public class RaidSeasonChangeTests : IDisposable
     [Fact]
     public async Task ALobbyLeftOnAnOlderSeasonPicksUpTheNewBoss()
     {
+        if (_excels is null) { SkipNote(); return; }
+
         var manager = new RaidManager(_excels);
 
         using (var db = NewContext())
@@ -91,6 +106,8 @@ public class RaidSeasonChangeTests : IDisposable
     [Fact]
     public async Task GrandAssaultSeasonChangeReachesTheLobby()
     {
+        if (_excels is null) { SkipNote(); return; }
+
         var manager = new EliminateRaidManager(_excels);
 
         using (var db = NewContext())
@@ -127,6 +144,8 @@ public class RaidSeasonChangeTests : IDisposable
     [Fact]
     public async Task ASeasonSetWhileNoLobbyRowExistsStillShowsTheRightBoss()
     {
+        if (_excels is null) { SkipNote(); return; }
+
         using (var db = NewContext())
             await ContentGM.SetEliminateRaidSeason(db, db.GetAccount(1), _excels, 4);
 
@@ -141,6 +160,8 @@ public class RaidSeasonChangeTests : IDisposable
     [Fact]
     public async Task EverySeasonAppliesThroughTheChatCommand()
     {
+        if (_excels is null) { SkipNote(); return; }
+
         var failures = new StringBuilder();
 
         using (var db = NewContext())
@@ -162,7 +183,7 @@ public class RaidSeasonChangeTests : IDisposable
     {
         using var output = new MemoryStream();
         var writer = new StreamWriter(output) { AutoFlush = true };
-        var connection = new WebClientConnection(new Factory(_path), null, _excels, writer, 1);
+        var connection = new WebClientConnection(new Factory(_path), null, _excels!, writer, 1);
 
         var cmd = CommandFactory.CreateCommand("setseason", connection, [type, seasonId.ToString()]);
         try

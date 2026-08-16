@@ -10,15 +10,18 @@ using Schale.MX.NetworkProtocol;
 using Shittim_Server.Core.NetworkProtocol.Handlers;
 using Shittim_Server.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Shittim_Server.Tests;
 
 // The client rebuilds the transcript and walks new arrivals from LatestMessageGroupId entirely on its own (MomoTalkDBService), so the outline must mirror exactly the group the client says it displayed. A server-computed successor can park Latest on an unanswered Answer group, and from there the client resolves the branch off the first row and never shows the prompt.
-public class MomoTalkReadTests
+public class MomoTalkReadTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task AFlushReadStopsAtTheGroupTheClientReported()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -40,6 +43,8 @@ public class MomoTalkReadTests
     [Fact]
     public async Task AnsweringStoresTheChosenRowKeyedByTheAnswerGroup()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -59,6 +64,8 @@ public class MomoTalkReadTests
     [Fact]
     public async Task AttendingARelationshipEventNeedsNoScheduleTicket()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -81,6 +88,8 @@ public class MomoTalkReadTests
     [Fact]
     public async Task ARelationshipEventAboveTheCharactersFavorRankIsRefused()
     {
+        if (Excels is null) { SkipNote(); return; }
+
         using var db = NewContext();
         var account = NewAccount(db);
 
@@ -115,25 +124,32 @@ public class MomoTalkReadTests
         db.SaveChanges();
     }
 
-    private static readonly ExcelTableService Excels = LoadExcels();
+    private static readonly ExcelTableService? Excels = LoadExcels();
 
-    private static ExcelTableService LoadExcels()
+    private void SkipNote() => output.WriteLine(
+        "No Resources/Dumped found, so the excel-backed assertions did not run. Build and start " +
+        "the server once to populate it, then re-run.");
+
+    private static ExcelTableService? LoadExcels()
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "Shittim-Server")))
             dir = Path.GetDirectoryName(dir);
 
-        ExcelTableService.DumpedDir = new[]
+        var dumped = new[]
         {
             Path.Combine(dir!, "Shittim-Server", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Debug", "net10.0", "Resources", "Dumped"),
             Path.Combine(dir!, "Shittim-Server", "bin", "Release", "net10.0", "Resources", "Dumped"),
-        }.First(Directory.Exists);
+        }.FirstOrDefault(Directory.Exists);
 
+        if (dumped is null) return null;
+
+        ExcelTableService.DumpedDir = dumped;
         return new ExcelTableService();
     }
 
-    private static MomoTalkHandler Handler() => new(null!, new FixedSessionService(), Excels, Mapper, new ParcelHandler(Excels, Mapper));
+    private static MomoTalkHandler Handler() => new(null!, new FixedSessionService(), Excels!, Mapper, new ParcelHandler(Excels!, Mapper));
 
     private static SessionKey Key(AccountDBServer account) => new() { AccountServerId = account.ServerId, MxToken = "t" };
 
