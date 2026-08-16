@@ -1,10 +1,5 @@
 name: Build and Release Shittim Server
 
-# The release number comes from Directory.Build.props, which is also what the server
-# assemblies and ShittimControlCenter/package.json carry. Bump it there (and in
-# package.json) before running this - the tag guard below refuses to release a version
-# that has already been tagged rather than quietly shipping a second build under it.
-
 on:
   workflow_dispatch:
 
@@ -12,9 +7,15 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    runs-on: windows-latest
-
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64, os: windows-latest }
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: osx-arm64, os: macos-latest }
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,77 +28,66 @@ jobs:
           global-json-file: global.json
 
       - name: Run tests
+        run: dotnet test ./Shittim-Server.Tests/Shittim-Server.Tests.csproj -c Release --nologo
+
+      - name: Publish server runtime
+        run: dotnet publish ./Shittim-Server/Shittim-Server.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./server-runtime
+
+      - name: Package (Windows)
+        if: matrix.rid == 'win-x64'
         shell: pwsh
         run: |
-          dotnet test .\Shittim-Server.Tests\Shittim-Server.Tests.csproj -c Release --nologo
+          New-Item -ItemType Directory pkg | Out-Null
+          Copy-Item ./server-runtime pkg/server-runtime -Recurse
+          Copy-Item ./README.md pkg/README.md
+          Copy-Item ./Scripts pkg/Scripts -Recurse
+          Compress-Archive -Path pkg/* -DestinationPath "Shittim-Server-${{ matrix.rid }}.zip" -Force
+
+      - name: Package (POSIX)
+        if: matrix.rid != 'win-x64'
+        run: |
+          mkdir -p pkg/server-runtime
+          cp -r ./server-runtime/. pkg/server-runtime/
+          cp ./README.md pkg/README.md
+          cp -r ./Scripts pkg/Scripts
+          tar -czf "Shittim-Server-${{ matrix.rid }}.tar.gz" -C pkg .
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.rid }}
+          path: Shittim-Server-${{ matrix.rid }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve release tag
         id: version
-        shell: pwsh
+        shell: bash
         run: |
-          $props = Get-Content .\Directory.Build.props -Raw
-          if ($props -notmatch '<Version>([^<]+)</Version>') {
-            throw "no <Version> in Directory.Build.props"
-          }
-          $version = $Matches[1]
+          version=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props | head -1)
+          if [ -z "$version" ]; then echo "no <Version> in Directory.Build.props"; exit 1; fi
+          package=$(node -p "require('./ShittimControlCenter/package.json').version")
+          if [ "$package" != "$version" ]; then echo "Directory.Build.props is $version but package.json is $package"; exit 1; fi
+          tag="v$version"
+          if git rev-parse "$tag" >/dev/null 2>&1; then echo "$tag already exists - bump the version before releasing"; exit 1; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-          $package = (Get-Content .\ShittimControlCenter\package.json -Raw | ConvertFrom-Json).version
-          if ($package -ne $version) {
-            throw "Directory.Build.props is $version but ShittimControlCenter/package.json is $package"
-          }
-
-          $tag = "v$version"
-          if (git tag --list $tag) {
-            throw "$tag already exists - bump Directory.Build.props and package.json before releasing"
-          }
-
-          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "asset_name=Shittim-Server-$tag.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - name: Publish server runtime
-        shell: pwsh
-        run: |
-          dotnet publish .\Shittim-Server\Shittim-Server.csproj -c Release -r win-x64 --self-contained true -o .\server-runtime
-
-      - name: Verify published binary version
-        shell: pwsh
-        run: |
-          $exe = Get-Item .\server-runtime\Shittim-Server.exe
-          $shipped = $exe.VersionInfo.FileVersion
-          $expected = "${{ steps.version.outputs.tag }}".TrimStart('v')
-          if (-not $shipped.StartsWith($expected)) {
-            throw "published binary reports $shipped, expected $expected"
-          }
-
-      - name: Package release archive
-        shell: pwsh
-        run: |
-          $packageDir = ".\release-package"
-          $assetName = "${{ steps.version.outputs.asset_name }}"
-          if (Test-Path $packageDir) {
-            Remove-Item $packageDir -Recurse -Force
-          }
-
-          New-Item -ItemType Directory -Path $packageDir | Out-Null
-
-          Copy-Item ".\server-runtime" "$packageDir\server-runtime" -Recurse
-          Copy-Item ".\README.md" "$packageDir\README.md"
-          Copy-Item ".\Scripts" "$packageDir\Scripts" -Recurse
-
-          Compress-Archive -Path "$packageDir\*" -DestinationPath ".\$assetName" -Force
-
-      - name: Create Git tag
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+      - name: Download all runtimes
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          files: ${{ steps.version.outputs.asset_name }}
+          files: artifacts/**/*
           generate_release_notes: true

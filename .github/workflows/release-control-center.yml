@@ -27,7 +27,11 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: ShittimControlCenter
@@ -48,7 +52,5 @@ jobs:
 
       - name: Build & publish to GitHub Releases
         env:
-          # electron-builder reads GH_TOKEN to publish; the built-in token has the
-          # contents:write permission granted above, so no PAT/secret is needed.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish

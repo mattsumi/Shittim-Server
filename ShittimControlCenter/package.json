@@ -11,8 +11,8 @@
     "soak": "electron test/soak.js --no-sandbox",
     "start": "electron .",
     "dev": "electron . --dev",
-    "dist": "electron-builder --win",
-    "publish": "electron-builder --win --publish always"
+    "dist": "electron-builder",
+    "publish": "electron-builder --publish always"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
@@ -54,6 +54,24 @@
         "nsis"
       ],
       "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game",
+      "artifactName": "ShittimControlCenter-v${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.games",
+      "artifactName": "ShittimControlCenter-v${version}-${arch}.${ext}"
     },
     "portable": {
       "artifactName": "ShittimControlCenter-v${version}-portable.${ext}"
