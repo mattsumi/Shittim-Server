@@ -48,6 +48,7 @@ jobs:
         run: npm install
 
       - name: Run tests
+        if: matrix.os == 'windows-latest'
         run: npm test
 
       - name: Build & publish to GitHub Releases

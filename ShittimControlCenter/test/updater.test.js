@@ -45,7 +45,7 @@ test('a clean run puts every file on the new version', () => {
 });
 
 // The reported failure: the server is running, so it holds its own binaries with FILE_SHARE_NONE and one file cannot be replaced. An install that ends up part v1 and part v2 is what produces CS1061 on the next build.
-test('a file locked by a running server stops the update with the install untouched', () => {
+test('a file locked by a running server stops the update with the install untouched', { skip: process.platform !== 'win32' }, () => {
   const { root, install, archive } = scratch();
   const locked = path.join(install, 'Shittim-Server', 'Model.cs');
   const holder = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',

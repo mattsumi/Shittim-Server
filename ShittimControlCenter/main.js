@@ -187,6 +187,7 @@ async function stopServer() {
 
 function startMitm(offline) {
   if (procs.mitm && !procs.mitm.killed) return { ok: false, error: 'mitmproxy already running' };
+  if (process.platform !== 'win32' && !offline) return { ok: false, error: 'Online capture mode is Windows-only (it hooks the client process). Use Start offline instead - it routes the client through loopback and works on SteamOS and macOS.' };
   const p = resolvePaths();
   if (!fs.existsSync(p.redirectScript)) return { ok: false, error: 'redirect_server.py not found' };
 
