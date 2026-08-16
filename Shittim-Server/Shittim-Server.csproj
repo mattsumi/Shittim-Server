@@ -49,16 +49,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Data\Banner\*.png">
+    <None Update="Data/Banner/*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="Data\Excel\MultiFloorRaidSeasonManageExcelT.json">
+    <None Update="Data/Excel/MultiFloorRaidSeasonManageExcelT.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="Data\Koyuki\koyuki.png">
+    <None Update="Data/Koyuki/koyuki.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="Data\ProhibitedWord\*.zip">
+    <None Update="Data/ProhibitedWord/*.zip">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
