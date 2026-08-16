@@ -26,6 +26,8 @@ Grab Shittim Control Center from the [releases page](https://github.com/Neoexm/S
 
 The Control Center acts as the admin panel. accounts, inventory, mail, gacha, events, and all other features can be found there. The console also keeps itself, aswell as the server fully up to date
 
+Windows 10/11 is the fully-supported platform. The server and Control Center also run on SteamOS (Steam Deck) and Apple-Silicon macOS, with some setup steps still manual — see [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).
+
 ## Credits
 
 This server builds on earlier open Blue Archive projects:
