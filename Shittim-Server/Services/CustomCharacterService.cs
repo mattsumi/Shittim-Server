@@ -759,21 +759,8 @@ namespace Shittim_Server.Services
             if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
                 return configured;
 
-            const string relative = @"BlueArchive_Data\StreamingAssets\PUB\Resource\Preload\TableBundles\ExcelDB.db";
-
-            var metaPath = Config.Instance.ServerConfiguration.ClientMetadataPath;
-            if (!string.IsNullOrWhiteSpace(metaPath))
-            {
-                var idx = metaPath.IndexOf(@"\BlueArchive_Data", StringComparison.OrdinalIgnoreCase);
-                if (idx > 0)
-                {
-                    var candidate = Path.Combine(metaPath[..idx], relative);
-                    if (File.Exists(candidate))
-                        return candidate;
-                }
-            }
-
-            return SteamGameLocator.FindGameFile(relative) ?? string.Empty;
+            return SteamGameLocator.FindClientFile(Config.Instance.ServerConfiguration.ClientMetadataPath,
+                "BlueArchive_Data", "StreamingAssets", "PUB", "Resource", "Preload", "TableBundles", "ExcelDB.db") ?? string.Empty;
         }
 
         private readonly record struct CloneTable(string Type, string Key, string[] Retarget);

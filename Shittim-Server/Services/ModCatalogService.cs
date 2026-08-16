@@ -57,27 +57,14 @@ namespace Shittim_Server.Services
             if (install != null && File.Exists(install + ".premods"))
                 return install + ".premods";
 
-            var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "LocalLow", "NEXON Games", "Blue Archive", "catalog_Remote.bytes");
+            var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "LocalLow", "Nexon Games", "Blue Archive", "catalog_Remote.bytes");
             return File.Exists(cached) ? cached : null;
         }
 
         public static string InstallCatalogPath()
         {
-            const string relative = @"BlueArchive_Data\StreamingAssets\PUB\Resource\Catalog\Windows\catalog_Windows.bytes";
-
-            var metaPath = Config.Instance.ServerConfiguration.ClientMetadataPath;
-            if (!string.IsNullOrWhiteSpace(metaPath))
-            {
-                var idx = metaPath.IndexOf(@"\BlueArchive_Data", StringComparison.OrdinalIgnoreCase);
-                if (idx > 0)
-                {
-                    var candidate = Path.Combine(metaPath[..idx], relative);
-                    if (File.Exists(candidate))
-                        return candidate;
-                }
-            }
-
-            return SteamGameLocator.FindGameFile(relative);
+            return SteamGameLocator.FindClientFile(Config.Instance.ServerConfiguration.ClientMetadataPath,
+                "BlueArchive_Data", "StreamingAssets", "PUB", "Resource", "Catalog", "Windows", "catalog_Windows.bytes");
         }
 
         public void SyncClient()
@@ -120,7 +107,7 @@ namespace Shittim_Server.Services
                 if (!((ReadOnlySpan<byte>)built).SequenceEqual(installed))
                 {
                     File.WriteAllBytes(install, built);
-                    var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "LocalLow", "NEXON Games", "Blue Archive", "catalog_Remote.bytes");
+                    var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "LocalLow", "Nexon Games", "Blue Archive", "catalog_Remote.bytes");
                     if (File.Exists(cached))
                         File.WriteAllBytes(cached, built);
                     logger.LogInformation("Spliced {Count} modded bundle(s) into {Path}", mods.Count, install);

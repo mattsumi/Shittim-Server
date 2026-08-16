@@ -360,22 +360,7 @@ public static class EventScheduleService
             return configured;
         }
 
-        const string relative = @"BlueArchive_Data\StreamingAssets\PUB\Resource\Preload\TableBundles\ExcelDB.db";
-
-        // Derive from the configured client-metadata install root (same install tree).
-        var metaPath = Config.Instance.ServerConfiguration.ClientMetadataPath;
-        if (!string.IsNullOrWhiteSpace(metaPath))
-        {
-            var idx = metaPath.IndexOf(@"\BlueArchive_Data", StringComparison.OrdinalIgnoreCase);
-            if (idx > 0)
-            {
-                var candidate = Path.Combine(metaPath[..idx], relative);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-        }
-
-        // Any Steam library can hold the install.
-        return SteamGameLocator.FindGameFile(relative) ?? string.Empty;
+        return SteamGameLocator.FindClientFile(Config.Instance.ServerConfiguration.ClientMetadataPath,
+            "BlueArchive_Data", "StreamingAssets", "PUB", "Resource", "Preload", "TableBundles", "ExcelDB.db") ?? string.Empty;
     }
 }

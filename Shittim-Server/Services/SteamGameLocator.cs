@@ -40,6 +40,24 @@ namespace Shittim_Server.Services
             return string.IsNullOrEmpty(root) ? null : Path.Combine(root, relative);
         }
 
+        public static string? FindClientFile(string? metaPath, params string[] relativeSegments)
+        {
+            var relative = Path.Combine(relativeSegments);
+
+            if (!string.IsNullOrWhiteSpace(metaPath))
+            {
+                var idx = metaPath.Replace('\\', '/').IndexOf("/BlueArchive_Data", StringComparison.OrdinalIgnoreCase);
+                if (idx > 0)
+                {
+                    var candidate = Path.Combine(metaPath[..idx], relative);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+
+            return FindGameFile(relative);
+        }
+
         // An explicit choice beats discovery, and it is read per call rather than through InstallRoot's Lazy so that
         // pointing the server at a different install is one setting instead of nine.
         private static string ConfiguredInstallRoot()
@@ -154,6 +172,7 @@ namespace Shittim_Server.Services
             yield return Path.Combine(home, ".steam", "root");
             yield return Path.Combine(home, ".local", "share", "Steam");
             yield return Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam");
+            yield return Path.Combine(home, "Library", "Application Support", "Steam");
         }
 
         // Parse steamapps\libraryfolders.vdf (and the legacy config\ location) for every library "path". Handles the modern keyed format
