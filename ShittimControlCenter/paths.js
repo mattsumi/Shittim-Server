@@ -48,9 +48,10 @@ function pathsFor(repoRoot, platform = process.platform) {
   };
 }
 
-// Find the directory holding mitmweb.exe under `root` (the install root, or one of its sub-dirs like bin/), searching up to `depth` levels deep.
-function findMitmBinDir(root, depth = 2) {
-  const hit = (d) => fs.existsSync(path.join(d, 'mitmweb.exe'));
+// Find the directory holding mitmweb under `root` (the install root, or one of its sub-dirs like bin/), searching up to `depth` levels deep.
+function findMitmBinDir(root, depth = 2, platform = process.platform) {
+  const exe = platform === 'win32' ? 'mitmweb.exe' : 'mitmweb';
+  const hit = (d) => fs.existsSync(path.join(d, exe));
   if (hit(root)) return root;
   if (depth <= 0) return null;
   try {
@@ -58,7 +59,7 @@ function findMitmBinDir(root, depth = 2) {
       const sub = path.join(root, n);
       try {
         if (fs.statSync(sub).isDirectory()) {
-          const found = findMitmBinDir(sub, depth - 1);
+          const found = findMitmBinDir(sub, depth - 1, platform);
           if (found) return found;
         }
       } catch { /* ignore */ }
@@ -69,7 +70,7 @@ function findMitmBinDir(root, depth = 2) {
 
 // Resolve a mitmproxy tool (mitmdump/mitmweb) from the install dir, else PATH. Walking PATH here rather than leaving the bare name to the spawn is what lets the environment check say WHICH mitmweb it found - a pip install under Scripts\ and our Program Files one are both normal and they are not the same program. The bare name is still the last resort, because an installer that has just finished writing to PATH has not necessarily reached this process's copy of it.
 function mitmExe(name, installDir, platform = process.platform, pathVar = process.env.PATH || process.env.Path || '') {
-  const dir = installDir ? findMitmBinDir(installDir) : null;
+  const dir = installDir ? findMitmBinDir(installDir, 2, platform) : null;
   const exe = platform === 'win32' ? `${name}.exe` : name;
   const onPath = pathVar.split(path.delimiter).filter(Boolean).map((d) => path.join(d, exe));
   return firstExisting([dir ? path.join(dir, exe) : null, ...onPath]) || exe;
@@ -83,7 +84,7 @@ function dotnetExe(perUserDir, platform = process.platform, pathVar = process.en
 
   const dirs = pathVar.split(path.delimiter).filter(Boolean);
   if (platform === 'win32' && programFiles) dirs.push(path.join(programFiles, 'dotnet'));
-  else if (platform !== 'win32') dirs.push('/usr/share/dotnet', '/usr/lib/dotnet');
+  else if (platform !== 'win32') dirs.push('/usr/share/dotnet', '/usr/local/share/dotnet', '/usr/lib/dotnet');
 
   const found = firstExisting(dirs.map((d) => path.join(d, exe)));
   return { cmd: found || exe, root: null };

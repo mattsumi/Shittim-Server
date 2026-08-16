@@ -127,6 +127,28 @@ test('with nothing anywhere the bare name comes back', () => {
   assert.equal(mitmExe('mitmdump', path.join('X:', 'nope'), 'linux', ''), 'mitmdump');
 });
 
+test('a suffixless mitmweb in the install dir is found on linux and macos', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scc-mitm-'));
+  try {
+    const bin = path.join(root, 'mitmproxy', 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, 'mitmweb'), '');
+    assert.equal(mitmExe('mitmweb', path.join(root, 'mitmproxy'), 'linux', ''), path.join(bin, 'mitmweb'));
+    assert.equal(mitmExe('mitmweb', path.join(root, 'mitmproxy'), 'darwin', ''), path.join(bin, 'mitmweb'));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a suffixless dotnet on PATH is found off Windows', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scc-dn-'));
+  try {
+    const dir = path.join(root, 'opt', 'dotnet');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'dotnet'), '');
+    assert.equal(dotnetExe(null, 'linux', dir, '').cmd, path.join(dir, 'dotnet'));
+    assert.equal(dotnetExe(path.join(root, 'none'), 'darwin', '', '').cmd, 'dotnet');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 function dotnetAt(dir) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'dotnet.exe'), '');

@@ -250,7 +250,9 @@ async function stopMitm() {
   return { ok: true };
 }
 
-const HOSTS_PATH = () => path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts');
+const HOSTS_PATH = () => process.platform === 'win32'
+  ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts')
+  : '/etc/hosts';
 const HOSTS_MARK = '# shittim offline';
 
 // every host the client reaches for across a full boot, read off the redirect log. mitmproxy's local mode can only divert a connection the client actually manages to open, and with no route out the name lookup fails before that - so these have to resolve on their own. 127.0.0.2 and not .1 because that is where the reverse listeners sit, and mitmproxy refuses to forward to a port it is itself listening on at 127.0.0.1.
@@ -279,9 +281,10 @@ function hostsWithBlock(text, on) {
     if (t === `${HOSTS_MARK} end`) { inBlock = false; continue; }
     if (!inBlock) kept.push(line);
   }
+  const eol = process.platform === 'win32' ? '\r\n' : '\n';
   while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
-  if (!on) return `${kept.join('\r\n')}\r\n`;
-  return `${[...kept, '', `${HOSTS_MARK} begin`, ...OFFLINE_HOSTS.map((h) => `127.0.0.2 ${h}`), `${HOSTS_MARK} end`].join('\r\n')}\r\n`;
+  if (!on) return `${kept.join(eol)}${eol}`;
+  return `${[...kept, '', `${HOSTS_MARK} begin`, ...OFFLINE_HOSTS.map((h) => `127.0.0.2 ${h}`), `${HOSTS_MARK} end`].join(eol)}${eol}`;
 }
 
 // hosts sits under System32, so staging the finished file next to it and copying it across keeps the elevated half down to one copy and a resolver cache flush - the cache matters because a name the client already looked up stays pointed at the real address until it is dropped.
@@ -806,7 +809,9 @@ async function rebuildServer() {
 // The .NET SDK installs per-user (no admin); mitmproxy's official installer and trusting the CA into the machine root store both require admin and prompt once for elevation. Each installer is idempotent and streams progress to the renderer over 'setup:progress'.
 // Windows only; elsewhere each returns a message pointing at the manual install.
 
-const DOTNET_DIR = () => path.join(process.env.LOCALAPPDATA || os.homedir(), 'Microsoft', 'dotnet');
+const DOTNET_DIR = () => process.platform === 'win32'
+  ? path.join(process.env.LOCALAPPDATA || os.homedir(), 'Microsoft', 'dotnet')
+  : path.join(os.homedir(), '.dotnet');
 const CERT_PATH = () => path.join(os.homedir(), '.mitmproxy', 'mitmproxy-ca-cert.cer');
 
 // mitmproxy ships an official, per-version Windows installer (Inno Setup, admin-only - its manifest is requireAdministrator). We pin a known-good version, install it into Program Files silently+elevated, then add it to PATH ourselves because the installer does not modify PATH.
