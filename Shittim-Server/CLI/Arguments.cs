@@ -10,5 +10,10 @@ namespace Shittim.CLI
         {
             await GameServer.Main(update, console, id);
         }
+
+        public static async Task FetchResourcesAsync()
+        {
+            await GameServer.FetchResources();
+        }
     }
 }

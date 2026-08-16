@@ -256,6 +256,31 @@ namespace Shittim.CLI
             }
         }
 
+        public static async Task FetchResources()
+        {
+            ConfigLogger.LogConfiguration();
+            Config.Load();
+
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddSerilog());
+            using var httpClient = new HttpClient();
+            var resolver = new BlueArchiveVersionResolver(httpClient, loggerFactory.CreateLogger<BlueArchiveVersionResolver>());
+
+            var (versionId, cdnBaseUrl) = await resolver.GetOrUpdateVersionIdAsync(
+                Config.Instance.ServerConfiguration.OverrideVersionId,
+                Config.Instance.ServerConfiguration.OverrideCdnBaseUrl);
+
+            BlueArchiveVersionState.Initialise(new BlueArchiveVersionState
+            {
+                VersionId = versionId,
+                CdnBaseUrl = cdnBaseUrl
+            });
+
+            await ResourceService.LoadResources(Config.Instance.ServerConfiguration.UseCustomExcel);
+            ExcelTableService.ValidateExcelDbKey();
+            Log.Information("Resources fetched to {DumpedDir}", ResourceService.DumpedDir);
+            Log.CloseAndFlush();
+        }
+
         private static int ParsePort(string value, int fallback, string configName)
         {
             if (int.TryParse(value, out var port) && port > 0 && port <= ushort.MaxValue)

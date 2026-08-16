@@ -1,4 +1,7 @@
 using ConsoleAppFramework;
 using Shittim.CLI;
 
-await ConsoleApp.RunAsync(args, Arguments.RunServerAsync);
+var app = ConsoleApp.Create();
+app.Add("", Arguments.RunServerAsync);
+app.Add("fetch-resources", Arguments.FetchResourcesAsync);
+await app.RunAsync(args);

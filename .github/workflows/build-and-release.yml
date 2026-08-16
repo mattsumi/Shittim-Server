@@ -27,7 +27,13 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Fetch game resources for the test gate
+        if: matrix.rid == 'linux-x64'
+        continue-on-error: true
+        run: dotnet run --project ./Shittim-Server -c Release -- fetch-resources
+
       - name: Run tests
+        if: matrix.rid == 'linux-x64'
         run: dotnet test ./Shittim-Server.Tests/Shittim-Server.Tests.csproj -c Release --nologo
 
       - name: Publish server runtime
