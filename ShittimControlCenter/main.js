@@ -289,7 +289,7 @@ function hostsWithBlock(text, on) {
 
 // hosts sits under System32, so staging the finished file next to it and copying it across keeps the elevated half down to one copy and a resolver cache flush - the cache matters because a name the client already looked up stays pointed at the real address until it is dropped.
 async function setOfflineHosts(on) {
-  if (process.platform !== 'win32') return { ok: false, error: 'Offline hosts entries are wired up for Windows only.' };
+  if (process.platform !== 'win32') return { ok: false, error: `Automated hosts editing is not wired for this platform yet. Add these to /etc/hosts by hand: ${OFFLINE_HOSTS.map((h) => `127.0.0.2 ${h}`).join('  ')}` };
   const hosts = HOSTS_PATH();
   let cur;
   try {
@@ -356,7 +356,7 @@ async function checkDotnet() {
 async function checkCertificate() {
   const certPath = CERT_PATH();
   if (!fs.existsSync(certPath)) return { status: 'warning', detail: 'CA certificate not generated yet' };
-  if (process.platform !== 'win32') return { status: 'warning', detail: `${certPath} - trust it in the system store yourself on this platform` };
+  if (process.platform !== 'win32') return { status: 'warning', detail: `${certPath} - trust it in the system store yourself (see the Install action for the exact command)` };
   const thumb = thumbprint(certPath);
   if (await trustedRoot(thumb)) return { status: 'ready', detail: `${certPath} (${thumb.slice(0, 8)}, trusted)` };
   return { status: 'warning', detail: `${certPath} exists but ${thumb.slice(0, 8)} is not in the root store` };
@@ -870,7 +870,7 @@ async function addToUserPath(dir, step) {
 async function installDotnet() {
   const step = 'dotnet';
   if (process.platform !== 'win32') {
-    return { ok: false, error: 'Automated .NET install is wired up for Windows only - install the .NET 10 SDK from https://dotnet.microsoft.com/download/dotnet/10.0.' };
+    return { ok: false, error: 'Install the .NET 10 SDK yourself, then re-check: curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 (installs to ~/.dotnet), or from https://dotnet.microsoft.com/download/dotnet/10.0' };
   }
   setupPhase(step, 'running', { message: '~250 MB, this can take a few minutes' });
   let tmp = null;
@@ -911,7 +911,7 @@ async function installDotnet() {
 async function installMitmproxy() {
   const step = 'mitmproxy';
   if (process.platform !== 'win32') {
-    return { ok: false, error: 'Automated mitmproxy install is wired up for Windows only - install it from https://mitmproxy.org/.' };
+    return { ok: false, error: `Install mitmproxy yourself, then re-check: ${process.platform === 'darwin' ? 'brew install mitmproxy' : 'pipx install mitmproxy'} (or download from https://mitmproxy.org/)` };
   }
   setupPhase(step, 'running', { message: `Downloading mitmproxy ${MITM_VERSION}...` });
   let tmp = null;
@@ -970,7 +970,11 @@ function generateMitmCert(step) {
 async function installCertificate() {
   const step = 'certificate';
   if (process.platform !== 'win32') {
-    return { ok: false, error: 'Automated certificate trust is wired up for Windows only.' };
+    const cert = CERT_PATH();
+    const how = process.platform === 'darwin'
+      ? `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${cert}`
+      : `sudo cp ${cert} /etc/ca-certificates/trust-source/anchors/shittim-mitm.crt && sudo update-ca-trust`;
+    return { ok: false, error: `Trust the mitmproxy CA yourself, then re-check: ${how} (or open http://mitm.it while the proxy runs)` };
   }
   setupPhase(step, 'running', { message: 'Preparing CA certificate...' });
   try {
